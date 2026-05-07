@@ -1,386 +1,205 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SwiftPOS — Retail Billing System</title>
-  <link rel="stylesheet" href="style.css" />
-  <!-- Barcode scanning -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-  <!-- Barcode generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
-  <!-- PDF export -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <!-- Sound -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-</head>
-<body>
+<script>
+  // SwiftPOS - Vanilla JS Billing & Barcode App
+const TAX_RATE = 0.18;
+const STORE = {
+  products: 'swiftpos_products_v1',
+  sales: 'swiftpos_sales_v1',
+  theme: 'swiftpos_theme_v1',
+  invoice: 'swiftpos_invoice_seed_v1'
+};
 
-<!-- ═══════════════════════════════════════════════════════
-     SIDEBAR NAVIGATION
-═══════════════════════════════════════════════════════ -->
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-logo">
-    <div class="logo-icon">⚡</div>
-    <div class="logo-text">
-      <span class="logo-name">SwiftPOS</span>
-      <span class="logo-sub">Retail System</span>
-    </div>
-  </div>
+let products = [];
+let sales = [];
+let cart = [];
+let currentPage = 'billing';
+let searchFilter = '';
+let categoryFilter = 'All';
+let editingProductId = null;
+let scannerSession = null;
 
-  <nav class="sidebar-nav">
-    <a class="nav-item active" data-page="billing" onclick="navigate('billing')">
-      <span class="nav-icon">🧾</span>
-      <span class="nav-label">Billing</span>
-      <span class="nav-badge" id="cart-badge">0</span>
-    </a>
-    <a class="nav-item" data-page="products" onclick="navigate('products')">
-      <span class="nav-icon">📦</span>
-      <span class="nav-label">Products</span>
-    </a>
-    <a class="nav-item" data-page="history" onclick="navigate('history')">
-      <span class="nav-icon">📋</span>
-      <span class="nav-label">Sales History</span>
-    </a>
-    <a class="nav-item" data-page="dashboard" onclick="navigate('dashboard')">
-      <span class="nav-icon">📊</span>
-      <span class="nav-label">Dashboard</span>
-    </a>
-  </nav>
+const shopDetails = {
+  name: 'SwiftPOS Supermarket',
+  address: '42 Market Street, Downtown, Springfield',
+  phone: '+1 (555) 128-9090'
+};
 
-  <div class="sidebar-footer">
-    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle Theme">
-      <span id="theme-icon">☀️</span>
-      <span id="theme-label">Light Mode</span>
-    </button>
-    <div class="shop-info">
-      <div class="shop-dot"></div>
-      <span>Online</span>
-    </div>
-  </div>
-</aside>
+const sampleProducts = [
+  ['Amul Milk 1L','8901262030010',72,80,'Dairy'],
+  ['Coca Cola 750ml','8902103001011',45,120,'Beverages'],
+  ['Lays Classic Chips','8901063151016',20,200,'Snacks'],
+  ['Brown Bread','8901111000102',38,45,'Bakery'],
+  ['Basmati Rice 5kg','8904503004405',499,35,'Grocery'],
+  ['Dove Soap 100g','8901030700406',42,95,'Personal Care'],
+  ['Surf Excel 1kg','8901030701304',210,60,'Cleaning'],
+  ['Notebook A4','8909000011223',55,170,'Stationery']
+].map((p, idx) => ({ id: `P${Date.now()}${idx}`, name: p[0], barcode: p[1], price: p[2], stock: p[3], category: p[4] }));
 
-<!-- Mobile sidebar overlay -->
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+function init() {
+  loadData();
+  applySavedTheme();
+  setClock();
+  setInterval(setClock, 1000);
+  bindEvents();
+  renderAll();
+  ensureInvoiceSeed();
+}
 
-<!-- ═══════════════════════════════════════════════════════
-     TOP HEADER
-═══════════════════════════════════════════════════════ -->
-<header class="top-header">
-  <div class="header-left">
-    <button class="hamburger" id="hamburger" onclick="toggleSidebar()">
-      <span></span><span></span><span></span>
-    </button>
-    <div class="header-title" id="page-title">Billing</div>
-  </div>
-  <div class="header-center">
-    <div class="search-bar">
-      <span class="search-icon">🔍</span>
-      <input type="text" id="global-search" placeholder="Search products by name or barcode…" oninput="globalSearch(this.value)" />
-      <kbd class="shortcut-hint">Ctrl+F</kbd>
-    </div>
-  </div>
-  <div class="header-right">
-    <div class="header-time" id="header-time"></div>
-    <div class="cashier-pill">
-      <div class="cashier-avatar">C</div>
-      <span>Cashier</span>
-    </div>
-  </div>
-</header>
+function loadData() {
+  products = JSON.parse(localStorage.getItem(STORE.products) || 'null') || sampleProducts;
+  sales = JSON.parse(localStorage.getItem(STORE.sales) || '[]');
+  persistProducts();
+}
+const persistProducts = () => localStorage.setItem(STORE.products, JSON.stringify(products));
+const persistSales = () => localStorage.setItem(STORE.sales, JSON.stringify(sales));
 
-<!-- Search dropdown -->
-<div class="search-dropdown" id="search-dropdown"></div>
+function bindEvents() {
+  document.getElementById('discount-input').addEventListener('input', recalculate);
+  document.getElementById('f-barcode').addEventListener('input', renderModalBarcode);
+  document.addEventListener('keydown', handleShortcuts);
+}
 
-<!-- ═══════════════════════════════════════════════════════
-     MAIN CONTENT AREA
-═══════════════════════════════════════════════════════ -->
-<main class="main-content">
+function setClock() {
+  const now = new Date();
+  document.getElementById('header-time').textContent = now.toLocaleString();
+}
 
-  <!-- ─────────────────────────────────────────────────────
-       PAGE: BILLING
-  ───────────────────────────────────────────────────── -->
-  <section class="page active" id="page-billing">
-    <div class="billing-layout">
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.getElementById('page-title').textContent = page[0].toUpperCase() + page.slice(1).replace('-', ' ');
+  closeSidebar();
+}
 
-      <!-- LEFT: Scanner + Product Grid -->
-      <div class="billing-left">
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
 
-        <!-- Barcode Scanner Card -->
-        <div class="card scanner-card">
-          <div class="card-header">
-            <h3>Barcode Scanner</h3>
-            <div class="scanner-controls">
-              <button class="btn btn-sm btn-outline" onclick="openCameraScanner()" title="[C] Camera">
-                📷 Camera
-              </button>
-              <span class="shortcut-pill">[C]</span>
-            </div>
-          </div>
-          <div class="scanner-input-row">
-            <div class="barcode-input-wrap">
-              <span class="barcode-icon">⬛</span>
-              <input type="text" id="barcode-input"
-                placeholder="Scan or type barcode here…"
-                autocomplete="off"
-                onkeydown="handleBarcodeKey(event)"
-                oninput="liveSearchBarcode(this.value)" />
-              <button class="btn btn-primary scan-btn" onclick="scanBarcode()" title="[Enter] Scan">
-                Add to Bill
-              </button>
-            </div>
-          </div>
-          <div class="scanner-status" id="scanner-status">
-            <span class="status-dot idle"></span>
-            <span id="scanner-status-text">Ready to scan — plug in USB scanner or use Camera</span>
-          </div>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.dataset.theme === 'dark' ? 'light' : 'dark';
+  html.dataset.theme = next;
+  localStorage.setItem(STORE.theme, next);
+  document.getElementById('theme-icon').textContent = next === 'dark' ? '☀️' : '🌙';
+  document.getElementById('theme-label').textContent = next === 'dark' ? 'Light Mode' : 'Dark Mode';
+}
+function applySavedTheme() { const t = localStorage.getItem(STORE.theme) || 'dark'; document.documentElement.dataset.theme = t; toggleTheme(); toggleTheme(); }
 
-          <!-- Camera preview -->
-          <div class="camera-wrapper" id="camera-wrapper" style="display:none">
-            <div id="camera-preview"></div>
-            <button class="btn btn-sm btn-danger cam-close" onclick="closeCameraScanner()">✕ Close Camera</button>
-          </div>
-        </div>
+function renderAll() {
+  renderCategoryTabs(); renderProductGrid(); renderCart(); renderProductTable(); renderHistory(); renderDashboard(); updateLiveInvoiceNo();
+}
 
-        <!-- Quick Product Grid -->
-        <div class="card">
-          <div class="card-header">
-            <h3>Quick Select</h3>
-            <div class="filter-tabs" id="category-tabs"></div>
-          </div>
-          <div class="product-grid" id="product-grid"></div>
-        </div>
-      </div>
+function renderCategoryTabs() {
+  const tabs = ['All', ...new Set(products.map(p => p.category))];
+  const wrap = document.getElementById('category-tabs');
+  wrap.innerHTML = tabs.map(c => `<button class="btn btn-sm ${categoryFilter===c?'btn-primary':'btn-outline'}" onclick="setCategoryFilter('${c.replace("'",'\\\'')}')">${c}</button>`).join('');
+  const sel = document.getElementById('category-filter');
+  sel.innerHTML = '<option value="">All Categories</option>' + tabs.filter(t => t!=='All').map(c => `<option ${c===sel.value?'selected':''}>${c}</option>`).join('');
+}
 
-      <!-- RIGHT: Cart / Bill -->
-      <div class="billing-right">
-        <div class="card bill-card">
-          <div class="card-header">
-            <h3>Current Bill <span class="invoice-chip" id="live-invoice-no"></span></h3>
-            <button class="btn btn-sm btn-danger" onclick="clearCart()" title="[Esc] Clear">🗑 Clear</button>
-          </div>
+function setCategoryFilter(cat) { categoryFilter = cat; renderProductGrid(); renderCategoryTabs(); }
 
-          <!-- Cart Table -->
-          <div class="cart-table-wrap">
-            <table class="cart-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Price</th>
-                  <th>Qty</th>
-                  <th>Total</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="cart-tbody"></tbody>
-            </table>
-            <div class="cart-empty" id="cart-empty">
-              <div class="empty-icon">🛒</div>
-              <p>Cart is empty</p>
-              <small>Scan a barcode to begin</small>
-            </div>
-          </div>
+function renderProductGrid() {
+  const grid = document.getElementById('product-grid');
+  const filtered = products.filter(p => (categoryFilter === 'All' || p.category === categoryFilter) && (!searchFilter || p.name.toLowerCase().includes(searchFilter) || p.barcode.includes(searchFilter)));
+  grid.innerHTML = filtered.map(p => `<div class="product-card" onclick="addToCartByProduct('${p.id}')"><div class="product-name">${p.name}</div><div class="product-price">₹${p.price.toFixed(2)}</div><small>${p.stock} in stock</small></div>`).join('') || '<div class="empty-state"><div class="empty-icon">📦</div><h4>No products</h4></div>';
+}
 
-          <!-- Totals Panel -->
-          <div class="totals-panel">
-            <div class="total-row">
-              <span>Subtotal</span>
-              <span id="subtotal">₹0.00</span>
-            </div>
-            <div class="total-row discount-row">
-              <span>Discount</span>
-              <div class="discount-input-wrap">
-                <input type="number" id="discount-input" min="0" max="100" value="0" oninput="recalculate()" />
-                <span class="pct">%</span>
-              </div>
-              <span id="discount-val">-₹0.00</span>
-            </div>
-            <div class="total-row">
-              <span>GST (18%)</span>
-              <span id="tax-val">₹0.00</span>
-            </div>
-            <div class="total-row grand">
-              <span>Grand Total</span>
-              <span id="grand-total">₹0.00</span>
-            </div>
-          </div>
+function handleBarcodeKey(e){ if(e.key==='Enter') scanBarcode(); }
+function liveSearchBarcode(v){ setScannerStatus(v ? 'Typing barcode...' : 'Ready to scan — plug in USB scanner or use Camera','idle'); }
+function scanBarcode() { const code = document.getElementById('barcode-input').value.trim(); if(!code) return; addToCartByBarcode(code); document.getElementById('barcode-input').value=''; }
 
-          <!-- Action Buttons -->
-          <div class="bill-actions">
-            <button class="btn btn-outline" onclick="exportPDF()" title="[P] PDF">
-              📄 Export PDF
-            </button>
-            <button class="btn btn-success" onclick="openCheckout()" title="[Enter] Checkout">
-              ✅ Checkout &amp; Print
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+function addToCartByBarcode(barcode) {
+  const product = products.find(p => p.barcode === barcode);
+  if(!product) return toast('Product not found', 'error');
+  addProductToCart(product);
+}
+function addToCartByProduct(id){ const p = products.find(x=>x.id===id); if(p) addProductToCart(p); }
 
-  <!-- ─────────────────────────────────────────────────────
-       PAGE: PRODUCTS
-  ───────────────────────────────────────────────────── -->
-  <section class="page" id="page-products">
-    <div class="page-toolbar">
-      <h2>Product Management</h2>
-      <button class="btn btn-primary" onclick="openProductModal()">＋ Add Product</button>
-    </div>
-    <div class="card">
-      <div class="table-controls">
-        <input type="text" class="table-search" id="product-search" placeholder="🔍 Search products…" oninput="renderProductTable()" />
-        <select id="category-filter" onchange="renderProductTable()">
-          <option value="">All Categories</option>
-        </select>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table" id="products-table">
-          <thead>
-            <tr>
-              <th>Barcode</th>
-              <th>Product</th>
-              <th>Category</th>
-              <th>Price</th>
-              <th>Stock</th>
-              <th>Barcode Image</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="products-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+function addProductToCart(product) {
+  if(product.stock <= 0) return toast('Out of stock', 'error');
+  const line = cart.find(c => c.id === product.id);
+  if(line) { if(line.qty >= product.stock) return toast('Stock limit reached', 'error'); line.qty += 1; }
+  else cart.push({ id: product.id, name: product.name, barcode: product.barcode, price: product.price, qty: 1 });
+  playBeep();
+  setScannerStatus(`Scanned: ${product.name}`, 'ok');
+  renderCart(); toast(`${product.name} added`, 'success');
+}
 
-  <!-- ─────────────────────────────────────────────────────
-       PAGE: SALES HISTORY
-  ───────────────────────────────────────────────────── -->
-  <section class="page" id="page-history">
-    <div class="page-toolbar">
-      <h2>Sales History</h2>
-      <button class="btn btn-outline" onclick="clearHistory()">🗑 Clear History</button>
-    </div>
-    <div class="history-grid" id="history-grid"></div>
-  </section>
+function renderCart() {
+  const tbody = document.getElementById('cart-tbody');
+  const empty = document.getElementById('cart-empty');
+  empty.style.display = cart.length ? 'none' : 'block';
+  tbody.innerHTML = cart.map(item => `<tr><td>${item.name}</td><td>₹${item.price.toFixed(2)}</td><td><div class="qty-controls"><button class="btn btn-sm btn-outline" onclick="changeQty('${item.id}',-1)">-</button><span>${item.qty}</span><button class="btn btn-sm btn-outline" onclick="changeQty('${item.id}',1)">+</button></div></td><td>₹${(item.price*item.qty).toFixed(2)}</td><td><button class="btn btn-sm btn-danger" onclick="removeFromCart('${item.id}')">✕</button></td></tr>`).join('');
+  document.getElementById('cart-badge').textContent = cart.reduce((a,b)=>a+b.qty,0);
+  recalculate();
+}
+function changeQty(id,delta){ const it=cart.find(c=>c.id===id); if(!it) return; const p=products.find(x=>x.id===id); it.qty += delta; if(it.qty<=0) cart=cart.filter(c=>c.id!==id); if(p && it.qty>p.stock) it.qty=p.stock; renderCart(); }
+function removeFromCart(id){ cart=cart.filter(c=>c.id!==id); renderCart(); }
+function clearCart(){ cart=[]; renderCart(); toast('Cart cleared','info'); }
 
-  <!-- ─────────────────────────────────────────────────────
-       PAGE: DASHBOARD
-  ───────────────────────────────────────────────────── -->
-  <section class="page" id="page-dashboard">
-    <div class="page-toolbar">
-      <h2>Dashboard Overview</h2>
-      <span class="badge-pill">Today</span>
-    </div>
-    <div class="stats-grid" id="stats-grid"></div>
-    <div class="dashboard-bottom">
-      <div class="card">
-        <div class="card-header"><h3>Recent Transactions</h3></div>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Invoice</th><th>Time</th><th>Items</th><th>Amount</th></tr></thead>
-            <tbody id="recent-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header"><h3>Top Products</h3></div>
-        <div id="top-products-list"></div>
-      </div>
-    </div>
-  </section>
+function recalculate() {
+  const subtotal = cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const discountPct = Number(document.getElementById('discount-input').value || 0);
+  const discount = subtotal * Math.min(100, Math.max(0,discountPct))/100;
+  const taxedBase = subtotal - discount;
+  const tax = taxedBase * TAX_RATE;
+  const grand = taxedBase + tax;
+  setText('subtotal', `₹${subtotal.toFixed(2)}`); setText('discount-val', `-₹${discount.toFixed(2)}`); setText('tax-val', `₹${tax.toFixed(2)}`); setText('grand-total', `₹${grand.toFixed(2)}`);
+}
 
-</main>
+function openProductModal(productId=null){ document.getElementById('product-modal-overlay').classList.add('open'); if(productId){ const p=products.find(x=>x.id===productId); editingProductId=p.id; setText('product-modal-title','Edit Product'); document.getElementById('f-name').value=p.name;document.getElementById('f-barcode').value=p.barcode;document.getElementById('f-price').value=p.price;document.getElementById('f-stock').value=p.stock;document.getElementById('f-category').value=p.category;} else { editingProductId=null; setText('product-modal-title','Add Product'); ['f-name','f-barcode','f-price','f-stock'].forEach(id=>document.getElementById(id).value=''); document.getElementById('f-category').value='Snacks';} renderModalBarcode(); }
+function closeProductModal(){ document.getElementById('product-modal-overlay').classList.remove('open'); }
+function autoGenBarcode(){ document.getElementById('f-barcode').value = '89' + Math.floor(100000000000 + Math.random()*900000000000); renderModalBarcode(); }
+function renderModalBarcode(){ const code=document.getElementById('f-barcode').value.trim(); if(!window.JsBarcode || !code) return; try{ JsBarcode('#modal-barcode-svg', code, {displayValue:true,height:60}); }catch(e){} }
 
-<!-- ═══════════════════════════════════════════════════════
-     MODAL: ADD/EDIT PRODUCT
-═══════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="product-modal-overlay" onclick="closeProductModal()">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <h3 id="product-modal-title">Add Product</h3>
-      <button class="modal-close" onclick="closeProductModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="edit-product-id" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Product Name *</label>
-          <input type="text" id="f-name" placeholder="e.g. Lays Classic Salted" />
-        </div>
-        <div class="form-group">
-          <label>Barcode Number *</label>
-          <div style="display:flex;gap:8px;">
-            <input type="text" id="f-barcode" placeholder="e.g. 8901063151016" style="flex:1" />
-            <button class="btn btn-sm btn-outline" onclick="autoGenBarcode()">⚡ Generate</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Price (₹) *</label>
-          <input type="number" id="f-price" placeholder="0.00" min="0" step="0.01" />
-        </div>
-        <div class="form-group">
-          <label>Stock Quantity *</label>
-          <input type="number" id="f-stock" placeholder="100" min="0" />
-        </div>
-        <div class="form-group">
-          <label>Category *</label>
-          <select id="f-category">
-            <option value="Snacks">Snacks</option>
-            <option value="Beverages">Beverages</option>
-            <option value="Dairy">Dairy</option>
-            <option value="Bakery">Bakery</option>
-            <option value="Grocery">Grocery</option>
-            <option value="Personal Care">Personal Care</option>
-            <option value="Cleaning">Cleaning</option>
-            <option value="Electronics">Electronics</option>
-            <option value="Stationery">Stationery</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-      </div>
-      <!-- Barcode Preview -->
-      <div class="barcode-preview">
-        <svg id="modal-barcode-svg"></svg>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
-    </div>
-  </div>
-</div>
+function saveProduct(){ const name=v('f-name'), barcode=v('f-barcode'), price=Number(v('f-price')), stock=Number(v('f-stock')), category=v('f-category'); if(!name||!barcode||!price&&price!==0||stock<0) return toast('Please fill required fields','error'); if(products.some(p=>p.barcode===barcode && p.id!==editingProductId)) return toast('Barcode must be unique','error'); const payload={id:editingProductId||`P${Date.now()}`,name,barcode,price,stock,category}; if(editingProductId){ products=products.map(p=>p.id===editingProductId?payload:p); toast('Product updated','success'); } else { products.unshift(payload); toast('Product added','success'); } persistProducts(); closeProductModal(); renderAll(); }
 
-<!-- ═══════════════════════════════════════════════════════
-     MODAL: CHECKOUT / PRINT INVOICE
-═══════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="checkout-modal-overlay" onclick="closeCheckout()">
-  <div class="modal modal-wide" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <h3>Invoice Preview</h3>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-sm btn-outline" onclick="window.print()">🖨 Print</button>
-        <button class="btn btn-sm btn-success" onclick="completeSale()">✅ Complete Sale</button>
-        <button class="modal-close" onclick="closeCheckout()">✕</button>
-      </div>
-    </div>
-    <div class="modal-body invoice-body" id="invoice-content">
-      <!-- Filled by JS -->
-    </div>
-  </div>
-</div>
+function renderProductTable(){ const q=document.getElementById('product-search').value.toLowerCase(); const cat=document.getElementById('category-filter').value; const rows=products.filter(p=>(!q||p.name.toLowerCase().includes(q)||p.barcode.includes(q))&&(!cat||p.category===cat)); document.getElementById('products-tbody').innerHTML=rows.map(p=>`<tr><td class="barcode-cell">${p.barcode}</td><td class="product-name-cell">${p.name}</td><td><span class="category-badge">${p.category}</span></td><td class="price-cell">₹${p.price.toFixed(2)}</td><td class="stock-cell ${p.stock===0?'out':p.stock<10?'low':'ok'}">${p.stock}</td><td><svg id="bc-${p.id}" style="width:150px;height:42px"></svg></td><td><div class="action-btns"><button class="btn btn-sm btn-outline" onclick="openProductModal('${p.id}')">Edit</button><button class="btn btn-sm btn-danger" onclick="deleteProduct('${p.id}')">Del</button></div></td></tr>`).join(''); rows.forEach(p=>{ try{JsBarcode(`#bc-${p.id}`, p.barcode,{displayValue:false,height:36});}catch(e){} }); }
+function deleteProduct(id){ if(!confirm('Delete this product?')) return; products=products.filter(p=>p.id!==id); persistProducts(); renderAll(); toast('Deleted','info'); }
 
-<!-- ═══════════════════════════════════════════════════════
-     TOAST NOTIFICATION
-═══════════════════════════════════════════════════════ -->
-<div class="toast" id="toast"></div>
+function openCheckout(){ if(!cart.length) return toast('Cart is empty','error'); document.getElementById('checkout-modal-overlay').classList.add('open'); document.getElementById('invoice-content').innerHTML = buildInvoiceHTML(); }
+function closeCheckout(){ document.getElementById('checkout-modal-overlay').classList.remove('open'); }
 
-<!-- ═══════════════════════════════════════════════════════
-     PRINT STYLESHEET CONTAINER
-═══════════════════════════════════════════════════════ -->
-<div id="print-area" style="display:none"></div>
+function buildInvoiceData(){ const now=new Date(); const subtotal=cart.reduce((s,i)=>s+i.price*i.qty,0); const discountPct=Number(document.getElementById('discount-input').value||0); const discount=subtotal*discountPct/100; const tax=(subtotal-discount)*TAX_RATE; const total=subtotal-discount+tax; return { invoiceNo: nextInvoiceNo(false), date: now.toLocaleString(), items: cart.map(c=>({...c,total:c.qty*c.price})), subtotal, discount, tax, total, discountPct }; }
 
-<script src="script.js"></script>
-</body>
-</html>
+function buildInvoiceHTML(data=buildInvoiceData()) { return `<div class="invoice-preview"><div class="invoice-shop-name">${shopDetails.name}</div><div class="invoice-shop-sub">${shopDetails.address}<br/>Phone: ${shopDetails.phone}</div><hr class="invoice-divider"/><div class="invoice-meta"><span>Invoice: <b>${data.invoiceNo}</b></span><span>${data.date}</span></div><table class="invoice-table"><thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Total</th></tr></thead><tbody>${data.items.map(i=>`<tr><td>${i.name}</td><td>${i.qty}</td><td>₹${i.price.toFixed(2)}</td><td>₹${i.total.toFixed(2)}</td></tr>`).join('')}</tbody></table><div class="invoice-totals"><div class="invoice-total-row"><span>Subtotal</span><span>₹${data.subtotal.toFixed(2)}</span></div><div class="invoice-total-row"><span>Discount (${data.discountPct}%)</span><span>-₹${data.discount.toFixed(2)}</span></div><div class="invoice-total-row"><span>GST (18%)</span><span>₹${data.tax.toFixed(2)}</span></div><div class="invoice-total-row invoice-grand"><span>Grand Total</span><span>₹${data.total.toFixed(2)}</span></div></div><div class="invoice-thank-you">Thank you for shopping with us!</div></div>`; }
+
+function completeSale(){ const data=buildInvoiceData(); sales.unshift(data); persistSales(); data.items.forEach(it=>{ const p=products.find(x=>x.id===it.id); if(p) p.stock=Math.max(0,p.stock-it.qty); }); persistProducts(); nextInvoiceNo(true); clearCart(); closeCheckout(); renderAll(); toast('Sale completed','success'); }
+
+function exportPDF(){ if(!cart.length) return toast('Cart is empty','error'); const { jsPDF } = window.jspdf; const pdf = new jsPDF(); const data = buildInvoiceData(); pdf.setFontSize(14); pdf.text(shopDetails.name, 14, 16); pdf.setFontSize(10); pdf.text(`${shopDetails.address} | ${shopDetails.phone}`,14,22); let y=32; pdf.text(`Invoice: ${data.invoiceNo}`,14,y); pdf.text(data.date,130,y); y+=8; data.items.forEach(it=>{ pdf.text(`${it.name} x${it.qty}`,14,y); pdf.text(`₹${it.total.toFixed(2)}`,170,y,{align:'right'}); y+=6; }); y+=4; pdf.text(`Total: ₹${data.total.toFixed(2)}`,14,y); pdf.save(`${data.invoiceNo}.pdf`); }
+
+function renderHistory(){ const wrap=document.getElementById('history-grid'); wrap.innerHTML=sales.map(s=>`<div class="history-card" onclick='viewInvoice("${s.invoiceNo}")'><div class="history-card-header"><span class="history-invoice">${s.invoiceNo}</span><span class="history-date">${s.date}</span></div><div class="history-amount">₹${s.total.toFixed(2)}</div><div class="history-meta"><span>${s.items.length} items</span></div><div class="history-items-preview">${s.items.slice(0,3).map(i=>`${i.name} x${i.qty}`).join(' • ')}</div></div>`).join('') || '<div class="empty-state"><div class="empty-icon">📋</div><h4>No Sales Yet</h4></div>'; }
+function viewInvoice(no){ const s=sales.find(x=>x.invoiceNo===no); if(!s) return; document.getElementById('checkout-modal-overlay').classList.add('open'); document.getElementById('invoice-content').innerHTML=buildInvoiceHTML(s); }
+function clearHistory(){ if(!confirm('Clear all history?')) return; sales=[]; persistSales(); renderAll(); }
+
+function renderDashboard(){ const totalSales=sales.reduce((a,b)=>a+b.total,0); const totalBills=sales.length; const itemsSold=sales.reduce((a,b)=>a+b.items.reduce((x,y)=>x+y.qty,0),0); const lowStock=products.filter(p=>p.stock<10).length; document.getElementById('stats-grid').innerHTML=`<div class='stat-card'><div class='stat-icon purple'>💰</div><div class='stat-value'>₹${totalSales.toFixed(0)}</div><div class='stat-label'>Revenue</div></div><div class='stat-card'><div class='stat-icon green'>🧾</div><div class='stat-value'>${totalBills}</div><div class='stat-label'>Invoices</div></div><div class='stat-card'><div class='stat-icon orange'>🛍️</div><div class='stat-value'>${itemsSold}</div><div class='stat-label'>Items sold</div></div><div class='stat-card'><div class='stat-icon cyan'>⚠️</div><div class='stat-value'>${lowStock}</div><div class='stat-label'>Low stock</div></div>`;
+  document.getElementById('recent-tbody').innerHTML=sales.slice(0,8).map(s=>`<tr><td>${s.invoiceNo}</td><td>${s.date}</td><td>${s.items.length}</td><td>₹${s.total.toFixed(2)}</td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">No transactions</td></tr>';
+  const counts = {};
+  sales.forEach(s=>s.items.forEach(i=>counts[i.name]=(counts[i.name]||0)+i.qty));
+  const top=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  document.getElementById('top-products-list').innerHTML=top.map((t,idx)=>`<div class='top-product-item'><span class='top-product-rank'>#${idx+1}</span><span class='top-product-name'>${t[0]}</span><span class='top-product-count'>${t[1]} sold</span></div>`).join('')||'<p class="text-muted">No data</p>';
+}
+
+function globalSearch(val){ searchFilter=val.toLowerCase(); renderProductGrid(); const drop=document.getElementById('search-dropdown'); if(!val){drop.style.display='none';return;} const matches=products.filter(p=>p.name.toLowerCase().includes(searchFilter)||p.barcode.includes(searchFilter)).slice(0,8); drop.innerHTML=matches.map(p=>`<div class='search-item' onclick="quickAdd('${p.id}')">${p.name} <small>${p.barcode}</small></div>`).join(''); drop.style.display=matches.length?'block':'none'; }
+function quickAdd(id){ addToCartByProduct(id); document.getElementById('search-dropdown').style.display='none'; }
+
+function openCameraScanner(){ if(!window.Quagga) return toast('Scanner lib unavailable','error'); const wrap=document.getElementById('camera-wrapper'); wrap.style.display='block'; Quagga.init({inputStream:{type:'LiveStream',target:document.querySelector('#camera-preview')},decoder:{readers:['ean_reader','code_128_reader','upc_reader']}}, err=>{ if(err){toast('Camera access denied','error'); return;} Quagga.start(); setScannerStatus('Camera scanning active','ok'); }); scannerSession=true; Quagga.onDetected(onCameraDetected); }
+function onCameraDetected(d){ const code=d.codeResult.code; if(code){ addToCartByBarcode(code); closeCameraScanner(); } }
+function closeCameraScanner(){ if(window.Quagga && scannerSession){ Quagga.stop(); Quagga.offDetected(onCameraDetected); } scannerSession=null; document.getElementById('camera-wrapper').style.display='none'; setScannerStatus('Camera stopped','idle'); }
+
+function playBeep(){ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.value=900; o.connect(g); g.connect(ctx.destination); g.gain.value=0.02; o.start(); setTimeout(()=>{o.stop();ctx.close();},90); }
+function setScannerStatus(msg,state='idle'){ const dot=document.querySelector('.status-dot'); dot.className=`status-dot ${state==='ok'?'ok':'idle'}`; setText('scanner-status-text',msg); }
+function setText(id,t){ document.getElementById(id).textContent=t; }
+function v(id){ return document.getElementById(id).value.trim(); }
+
+function handleShortcuts(e){ if(e.ctrlKey&&e.key.toLowerCase()==='f'){ e.preventDefault(); document.getElementById('global-search').focus(); } if(e.key==='Escape') clearCart(); if(e.key.toLowerCase()==='c') openCameraScanner(); if(e.key.toLowerCase()==='p') exportPDF(); if(e.key==='Enter'&&document.activeElement.id!=='barcode-input'&&cart.length) openCheckout(); }
+
+function ensureInvoiceSeed(){ if(!localStorage.getItem(STORE.invoice)) localStorage.setItem(STORE.invoice,'1001'); updateLiveInvoiceNo(); }
+function nextInvoiceNo(increment){ let n=Number(localStorage.getItem(STORE.invoice)||1001); const formatted=`INV-${n}`; if(increment) localStorage.setItem(STORE.invoice,String(n+1)); return formatted; }
+function updateLiveInvoiceNo(){ document.getElementById('live-invoice-no').textContent = nextInvoiceNo(false); }
+
+window.navigate=navigate;window.toggleTheme=toggleTheme;window.toggleSidebar=toggleSidebar;window.closeSidebar=closeSidebar;window.handleBarcodeKey=handleBarcodeKey;window.liveSearchBarcode=liveSearchBarcode;window.scanBarcode=scanBarcode;window.openCameraScanner=openCameraScanner;window.closeCameraScanner=closeCameraScanner;window.setCategoryFilter=setCategoryFilter;window.changeQty=changeQty;window.removeFromCart=removeFromCart;window.clearCart=clearCart;window.exportPDF=exportPDF;window.openCheckout=openCheckout;window.closeCheckout=closeCheckout;window.completeSale=completeSale;window.openProductModal=openProductModal;window.closeProductModal=closeProductModal;window.autoGenBarcode=autoGenBarcode;window.saveProduct=saveProduct;window.deleteProduct=deleteProduct;window.renderProductTable=renderProductTable;window.globalSearch=globalSearch;window.quickAdd=quickAdd;window.viewInvoice=viewInvoice;window.clearHistory=clearHistory;window.recalculate=recalculate;
+
+init();
+</script>
