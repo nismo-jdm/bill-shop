@@ -83,7 +83,7 @@ function toggleTheme() {
   document.getElementById('theme-icon').textContent = next === 'dark' ? '☀️' : '🌙';
   document.getElementById('theme-label').textContent = next === 'dark' ? 'Light Mode' : 'Dark Mode';
 }
-function applySavedTheme() { const t = localStorage.getItem(STORE.theme) || 'dark'; document.documentElement.dataset.theme = t; toggleTheme(); toggleTheme(); }
+function applySavedTheme() { const t = localStorage.getItem(STORE.theme) || 'dark'; document.documentElement.dataset.theme = t; document.getElementById('theme-icon').textContent = t === 'dark' ? '☀️' : '🌙'; document.getElementById('theme-label').textContent = t === 'dark' ? 'Light Mode' : 'Dark Mode'; }
 
 function renderAll() {
   renderCategoryTabs(); renderProductGrid(); renderCart(); renderProductTable(); renderHistory(); renderDashboard(); updateLiveInvoiceNo();
@@ -186,7 +186,18 @@ function quickAdd(id){ addToCartByProduct(id); document.getElementById('search-d
 
 function openCameraScanner(){ if(!window.Quagga) return toast('Scanner lib unavailable','error'); const wrap=document.getElementById('camera-wrapper'); wrap.style.display='block'; Quagga.init({inputStream:{type:'LiveStream',target:document.querySelector('#camera-preview')},decoder:{readers:['ean_reader','code_128_reader','upc_reader']}}, err=>{ if(err){toast('Camera access denied','error'); return;} Quagga.start(); setScannerStatus('Camera scanning active','ok'); }); scannerSession=true; Quagga.onDetected(onCameraDetected); }
 function onCameraDetected(d){ const code=d.codeResult.code; if(code){ addToCartByBarcode(code); closeCameraScanner(); } }
-function closeCameraScanner(){ if(window.Quagga && scannerSession){ Quagga.stop(); Quagga.offDetected(onCameraDetected); } scannerSession=null; document.getElementById('camera-wrapper').style.display='none'; setScannerStatus('Camera stopped','idle'); }
+function closeCameraScanner(){ if(window.Quagga && scannerSession){ Quagga.stop(); if(Quagga.offDetected) Quagga.offDetected(onCameraDetected); } scannerSession=null; document.getElementById('camera-wrapper').style.display='none'; setScannerStatus('Camera stopped','idle'); }
+
+
+function toast(message, type='info'){
+  const el = document.getElementById('toast');
+  if(!el) return;
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(()=>el.classList.remove('show'), 2200);
+}
 
 function playBeep(){ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.value=900; o.connect(g); g.connect(ctx.destination); g.gain.value=0.02; o.start(); setTimeout(()=>{o.stop();ctx.close();},90); }
 function setScannerStatus(msg,state='idle'){ const dot=document.querySelector('.status-dot'); dot.className=`status-dot ${state==='ok'?'ok':'idle'}`; setText('scanner-status-text',msg); }
@@ -201,5 +212,8 @@ function updateLiveInvoiceNo(){ document.getElementById('live-invoice-no').textC
 
 window.navigate=navigate;window.toggleTheme=toggleTheme;window.toggleSidebar=toggleSidebar;window.closeSidebar=closeSidebar;window.handleBarcodeKey=handleBarcodeKey;window.liveSearchBarcode=liveSearchBarcode;window.scanBarcode=scanBarcode;window.openCameraScanner=openCameraScanner;window.closeCameraScanner=closeCameraScanner;window.setCategoryFilter=setCategoryFilter;window.changeQty=changeQty;window.removeFromCart=removeFromCart;window.clearCart=clearCart;window.exportPDF=exportPDF;window.openCheckout=openCheckout;window.closeCheckout=closeCheckout;window.completeSale=completeSale;window.openProductModal=openProductModal;window.closeProductModal=closeProductModal;window.autoGenBarcode=autoGenBarcode;window.saveProduct=saveProduct;window.deleteProduct=deleteProduct;window.renderProductTable=renderProductTable;window.globalSearch=globalSearch;window.quickAdd=quickAdd;window.viewInvoice=viewInvoice;window.clearHistory=clearHistory;window.recalculate=recalculate;
 
-init();
-</script>
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}/script>
