@@ -1,4 +1,138 @@
 :root {
+  --bg: #0f172a;
+  --card: rgba(255, 255, 255, 0.08);
+  --text: #ffffff;
+  --primary: linear-gradient(135deg, #7c3aed, #06b6d4);
+  --border: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] {
+  --bg: #f1f5f9;
+  --card: rgba(255,255,255,0.7);
+  --text: #111827;
+  --border: rgba(0,0,0,0.1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app-container {
+  display: flex;
+}
+
+.sidebar {
+  width: 260px;
+  min-height: 100vh;
+  padding: 25px;
+  border-right: 1px solid var(--border);
+}
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(20px);
+}
+
+.logo {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.nav-btn,
+button {
+  border: none;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.nav-btn {
+  background: transparent;
+  color: var(--text);
+  padding: 14px;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.nav-btn:hover,
+.nav-btn.active {
+  background: linear-gradient(135deg,#7c3aed,#06b6d4);
+}
+
+.bottom-actions {
+  margin-top: 40px;
+}
+
+.bottom-actions button {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.08);
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+.search-box input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  outline: none;
+}
+
+.page {
+  display: none;
+}
+
+.active-page {
+  display: block;
+}
+
+.billing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.card {
+  padding: 20px;
   border-radius: 24px;
   border: 1px solid var(--border);
 }
