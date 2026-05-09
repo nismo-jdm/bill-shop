@@ -5,9 +5,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SwiftPOS — Billing System</title>
-
-<link rel="stylesheet" href="style.css" />
-
 <!-- Icons -->
 <link
 rel="stylesheet"
@@ -22,6 +19,158 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
 
 <!-- PDF Export -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+         :root {
+  border-radius: 24px;
+  border: 1px solid var(--border);
+}
+
+.section-header {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.barcode-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+input,
+button {
+  padding: 12px;
+  border-radius: 12px;
+}
+
+input {
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+}
+
+button {
+  background: var(--primary);
+  color: white;
+}
+
+.success {
+  background: linear-gradient(135deg,#10b981,#059669);
+}
+
+.danger {
+  background: linear-gradient(135deg,#ef4444,#dc2626);
+}
+
+.products-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap: 15px;
+}
+
+.product-card {
+  padding: 15px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.05);
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.product-card:hover {
+  transform: translateY(-5px);
+}
+
+.product-card h3 {
+  margin-bottom: 10px;
+}
+
+.product-card p {
+  margin: 5px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.qty-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qty-controls button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.totals {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.totals div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.grand-total {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.product-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.barcode-svg {
+  width: 120px;
+  height: 50px;
+}
+
+.history-card {
+  padding: 16px;
+  border-radius: 18px;
+  margin-bottom: 15px;
+  background: rgba(255,255,255,0.05);
+}
+
+#printArea {
+  display: none;
+}
+
+@media(max-width: 1024px) {
+  .billing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    width: 90px;
+  }
+
+  .logo span,
+  .n
+</style>
 </head>
 <body>
 
