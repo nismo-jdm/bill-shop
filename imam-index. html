@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Imam Encyclopedia</title>
+    <style>
+        /* ==========================================
+           CORE VARIABLES & RESET
+           ========================================== */
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #16a085;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            transition: background-color var(--transition-speed);
+        }
+
+        /* ==========================================
+           NAVIGATION BAR (From Sketch 2)
+           ========================================== */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1rem 5%;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            font-size: 1.4rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+            transition: color var(--transition-speed);
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--accent-color);
+        }
+
+        /* Language Switcher Engine */
+        .lang-switcher button {
+            background: transparent;
+            border: 1px solid white;
+            color: white;
+            padding: 6px 12px;
+            margin-left: 5px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: bold;
+            transition: all var(--transition-speed);
+        }
+
+        .lang-switcher button:hover, .lang-switcher button.active-lang {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+
+        /* ==========================================
+           LAYOUT CONTAINER & HERO (From Sketch 1)
+           ========================================== */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .hero-section {
+            text-align: center;
+            padding: 50px 20px;
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .hero-section h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        /* ==========================================
+           MAIN DIRECTORY GRID (From Sketch 2)
+           ========================================== */
+        .directory-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        /* Sidebar Filter Panels (From Sketch 3) */
+        .sidebar {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            height: fit-content;
+        }
+
+        .sidebar h3 {
+            margin-bottom: 15px;
+            color: var(--primary-color);
+            border-bottom: 2px solid #edf2f7;
+            padding-bottom: 8px;
+        }
+
+        .dropdown-container {
+            margin-bottom: 20px;
+        }
+
+        .dropdown-effect {
+            width: 100%;
+            padding: 12px;
+            margin-top: 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background-color: #fff;
+            outline: none;
+            transition: border var(--transition-speed);
+        }
+
+        .dropdown-effect:focus {
+            border-color: var(--accent-color);
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        .search-box input:focus {
+            border-color: var(--accent-color);
+        }
+
+        /* Cards Container System */
+        .cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 25px;
+        }
+
+        .imam-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            transition: transform var(--transition-speed), box-shadow var(--transition-speed);
+        }
+
+        /* Dynamic Hover Animations */
+        .imam-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+        }
+
+        .card-image-placeholder {
+            background-color: #e2e8f0;
+            height: 220px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #718096;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .card-content {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .card-content h3 {
+            margin-bottom: 10px;
+            color: var(--primary-color);
+        }
+
+        .card-content p {
+            font-size: 0.95rem;
+            color: #555;
+            margin-bottom: 20px;
+            flex-grow: 1;
+        }
+
+        .btn-view, .btn-add {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background var(--transition-speed), transform 0.1s;
+        }
+
+        .btn-view:hover, .btn-add:hover {
+            background-color: #117a65;
+        }
+
+        .btn-view:active, .btn-add:active {
+            transform: scale(0.98);
+        }
+
+        /* ==========================================
+           WIKIPEDIA DETAIL VIEW (From Sketch 1 & Notes)
+           ========================================== */
+        .details-section {
+            background: white;
+            padding: 35px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 40px;
+            border-top: 4px solid var(--accent-color);
+        }
+
+        .details-section h2 {
+            margin-bottom: 20px;
+            color: var(--primary-color);
+        }
+
+        .wiki-content ul {
+            list-style-type: dotted;
+            margin-left: 25px;
+        }
+
+        .wiki-content li {
+            margin-bottom: 18px;
+            font-size: 1.05rem;
+        }
+
+        /* ==========================================
+           ADMIN INTERFACE PANEL (From Sketch 3)
+           ========================================== */
+        .admin-panel {
+            background: #edf2f7;
+            padding: 35px;
+            border-radius: 8px;
+            border-left: 5px solid var(--primary-color);
+            margin-bottom: 20px;
+        }
+
+        .admin-panel h2 {
+            margin-bottom: 15px;
+            color: var(--primary-color);
+        }
+
+        .admin-actions {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn-add {
+            width: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .admin-note {
+            font-style: italic;
+            color: #4a5568;
+        }
+
+        /* ==========================================
+           FOOTER ENGINE (From Sketch 1 & 2)
+           ========================================== */
+        .site-footer {
+            background-color: var(--primary-color);
+            color: white;
+            text-align: center;
+            padding: 25px;
+            margin-top: 60px;
+            position: relative;
+        }
+
+        .scroll-top {
+            position: absolute;
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--accent-color);
+            border: none;
+            color: white;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background var(--transition-speed);
+        }
+
+        .scroll-top:hover {
+            background-color: #117a65;
+        }
+
+        /* ==========================================
+           RTL (RIGHT-TO-LEFT) FOR ARABIC TRANSITION
+           ========================================== */
+        [dir="rtl"] {
+            font-family: 'Cairo', 'Amiri', serif;
+        }
+
+        [dir="rtl"] .navbar, 
+        [dir="rtl"] .directory-grid,
+        [dir="rtl"] .admin-actions {
+            flex-direction: row-reverse;
+        }
+
+        [dir="rtl"] .directory-grid {
+            grid-template-columns: 1fr 280px;
+        }
+
+        [dir="rtl"] .admin-panel {
+            border-left: none;
+            border-right: 5px solid var(--primary-color);
+        }
+
+        [dir="rtl"] .scroll-top {
+            right: auto;
+            left: 30px;
+        }
+
+        [dir="rtl"] .wiki-content ul {
+            margin-left: 0;
+            margin-right: 25px;
+        }
+
+        /* ==========================================
+           MEDIA QUERIES (RESPONSIVE RESPONSIVENESS)
+           ========================================== */
+        @media (max-width: 992px) {
+            .directory-grid {
+                grid-template-columns: 1fr;
+            }
+            [dir="rtl"] .directory-grid {
+                grid-template-columns: 1fr;
+            }
+            .navbar {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .cards-container {
+                grid-template-columns: 1fr;
+            }
+            .admin-actions {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .btn-add {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="navbar">
+        <div class="logo">ImamWiki</div>
+        <nav class="nav-links">
+            <a href="#directory" class="active">Directory</a>
+            <a href="#details-view">Biography</a>
+            <a href="#admin">Admin Panel</a>
+        </nav>
+        <div class="lang-switcher">
+            <button id="btn-en" class="active-lang" onclick="changeLanguage('en')">EN</button>
+            <button id="btn-ml" onclick="changeLanguage('ml')">ML</button>
+            <button id="btn-ar" onclick="changeLanguage('ar')">AR</button>
+        </div>
+    </header>
+
+    <main class="container">
+        
+        <section class="hero-section">
+            <h1 id="hero-title">Imam Directory</h1>
+            <p id="hero-desc">A comprehensive Wikipedia-style archive detailing the lives, works, and histories of prominent Imams.</p>
+        </section>
+
+        <section class="directory-grid" id="directory">
+            
+            <aside class="sidebar">
+                <h3 id="filter-title">Filters</h3>
+                <div class="dropdown-container">
+                    <label for="category-select" id="label-category">Category:</label>
+                    <select id="category-select" class="dropdown-effect">
+                        <option value="all">All Eras</option>
+                        <option value="classical">Classical</option>
+                        <option value="modern">Modern</option>
+                    </select>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="Search Imams...">
+                </div>
+            </aside>
+
+            <div class="cards-container">
+                <div class="imam-card">
+                    <div class="card-image-placeholder">Photo Field</div>
+                    <div class="card-content">
+                        <h3 class="card-name-1">Imam Malik</h3>
+                        <p class="card-desc-1">Founder of the Maliki school of jurisprudence, renowned for compiling the Muwatta.</p>
+                        <button class="btn-view" onclick="scrollToDetails()">View Details</button>
+                    </div>
+                </div>
+
+                <div class="imam-card">
+                    <div class="card-image-placeholder">Photo Field</div>
+                    <div class="card-content">
+                        <h3 class="card-name-2">Imam Shafi'i</h3>
+                        <p class="card-desc-2">Founder of the Shafi'i school, celebrated for his pioneering contributions to Usool al-Fiqh.</p>
+                        <button class="btn-view" onclick="scrollToDetails()">View Details</button>
+                    </div>
+                </div>
+
+                <div class="imam-card">
+                    <div class="card-image-placeholder">Photo Field</div>
+                    <div class="card-content">
+                        <h3 class="card-name-3">Imam Abu Hanifa</h3>
+                        <p class="card-desc-3">Founder of the Hanafi school of law, highly recognized for his legal reasoning and logic.</p>
+                        <button class="btn-view" onclick="scrollToDetails()">View Details</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="details-section" id="details-view">
+            <h2 id="details-heading">Detailed Biography Stack</h2>
+            <div class="wiki-content">
+                <ul id="details-list">
+                    <li><strong>Full Name & Lineage:</strong> Authenticated historical lineage documentation records.</li>
+                    <li><strong>Major Scholarly Works:</strong> Primary references, preserved manuscripts, and legal declarations.</li>
+                    <li><strong>Teachers & Chain of Transmission:</strong> Isnad verification records across generations.</li>
+                    <li><strong>Historical Timeline:</strong> Chronicled timeline maps from primary source text.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="admin-panel" id="admin">
+            <h2 id="admin-heading">Admin Control Page</h2>
+            <div class="admin-actions">
+                <button class="btn-add"><span id="admin-btn-text">Add New Profile</span> <span>+</span></button>
+                <p class="admin-note" id="admin-note-text">When a category drop-down selection changes, database timelines adjust automatically.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="site-footer">
+        <p>&copy; 2026 ImamWiki Encyclopedia. All Rights Reserved.</p>
+        <button class="scroll-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'});">↑</button>
+    </footer>
+
+    <script>
+        const translations = {
+            en: {
+                heroTitle: "Imam Directory",
+                heroDesc: "A comprehensive Wikipedia-style archive detailing the lives, works, and histories of prominent Imams.",
+                filterTitle: "Filters",
+                labelCategory: "Category:",
+                searchPlaceholder: "Search Imams...",
+                detailsHeading: "Detailed Biography Stack",
+                adminHeading: "Admin Control Page",
+                adminBtnText: "Add New Profile",
+                adminNoteText: "When a category drop-down selection changes, database timelines adjust automatically.",
+                list: [
+                    "<strong>Full Name & Lineage:</strong> Authenticated historical lineage documentation records.",
+                    "<strong>Major Scholarly Works:</strong> Primary references, preserved manuscripts, and legal declarations.",
+                    "<strong>Teachers & Chain of Transmission:</strong> Isnad verification records across generations.",
+                    "<strong>Historical Timeline:</strong> Chronicled timeline maps from primary source text."
+                ]
+            },
+            ml: {
+                heroTitle: "ഇമാം ഡയറക്ടറി",
+                heroDesc: "പ്രമുഖ ഇമാമുകളുടെ ജീവിതം, കൃതികൾ, ചരിത്രം എന്നിവ വിശദീകരിക്കുന്ന സമഗ്രമായ ഒരു വിജ്ഞാനകോശം.",
+                filterTitle: "ഫിൽട്ടറുകൾ",
+                labelCategory: "വിഭാഗം:",
+                searchPlaceholder: "തിരയുക...",
+                detailsHeading: "വിശദമായ ജീവചരിത്രം",
+                adminHeading: "അഡ്മിൻ കൺട്രോൾ പേജ്",
+                adminBtnText: "പുതിയ പ്രൊഫൈൽ ചേർക്കുക",
+                adminNoteText: "ഒരു വിഭാഗം തിരഞ്ഞെടുക്കുമ്പോൾ, ഡാറ്റാബേസ് വിവരങ്ങൾ സ്വയമേവ അപ്ഡേറ്റ് ചെയ്യപ്പെടും.",
+                list: [
+                    "<strong>പൂർണ്ണ നാമവും വംശാവലിയും:</strong> സാക്ഷ്യപ്പെടുത്തിയ ചരിത്രപരമായ രേഖകൾ.",
+                    "<strong>പ്രധാന കൃതികൾ:</strong> അവരുടെ പ്രധാനപ്പെട്ട പുസ്തകങ്ങളും സംഭാവനകളും.",
+                    "<strong>ഗുരുക്കന്മാരും ശിഷ്യന്മാരും:</strong> വിജ്ഞാന കൈമാറ്റ പരമ്പരകൾ.",
+                    "<strong>ചരിത്രപരമായ സമയരേഖ:</strong> പ്രധാന ജീവിത സംഭവങ്ങളുടെ വിവരണം."
+                ]
+            },
+            ar: {
+                heroTitle: "دليل الأئمة",
+                heroDesc: "أرشيف شامل ومفصل على طريقة ويكيبيديا يستعرض حياة الأئمة الأعلام ومؤلفاتهم وتاريخهم الحافل.",
+                filterTitle: "تصفية النتائج",
+                labelCategory: "الفئة:",
+                searchPlaceholder: "بحث عن إمام...",
+                detailsHeading: "السيرة الذاتية المفصلة",
+                adminHeading: "لوحة تحكم المسؤول",
+                adminBtnText: "إضافة ملف تعريف جديد",
+                adminNoteText: "عند اختيار فئة محددة، سيتم تحديث البيانات والجداول الزمنية ديناميكيًا بشكل تلقائي.",
+                list: [
+                    "<strong>الاسم الكامل والنسب:</strong> توثيق النسب والسيرة التاريخية المعتمدة.",
+                    "<strong>المؤلفات والكتب الرئيسية:</strong> المخطوطات والكتب الفقهية البارزة.",
+                    "<strong>الشيوخ والتلاميذ:</strong> سلاسل الرواية والإجازات العلمية عبر الأجيال.",
+                    "<strong>الجدول الزمني التاريخي:</strong> خرائط زمنية مفصلة للأحداث التاريخية الرئيسية."
+                ]
+            }
+        };
+
+        function changeLanguage(lang) {
+            const htmlTag = document.documentElement;
+            
+            // Set direction rules
+            if (lang === 'ar') {
+                htmlTag.setAttribute('dir', 'rtl');
+                htmlTag.setAttribute('lang', 'ar');
+            } else {
+                htmlTag.setAttribute('dir', 'ltr');
+                htmlTag.setAttribute('lang', lang);
+            }
+
+            // Update Text Node Nodes
+            document.getElementById('hero-title').innerText = translations[lang].heroTitle;
+            document.getElementById('hero-desc').innerText = translations[lang].heroDesc;
+            document.getElementById('filter-title').innerText = translations[lang].filterTitle;
+            document.getElementById('label-category').innerText = translations[lang].labelCategory;
+            document.getElementById('search-input').placeholder = translations[lang].searchPlaceholder;
+            document.getElementById('details-heading').innerText = translations[lang].detailsHeading;
+            document.getElementById('admin-heading').innerText = translations[lang].adminHeading;
+            document.getElementById('admin-btn-text').innerText = translations[lang].adminBtnText;
+            document.getElementById('admin-note-text').innerText = translations[lang].adminNoteText;
+
+            // Render Bullet-points dynamically
+            const listContainer = document.getElementById('details-list');
+            listContainer.innerHTML = '';
+            translations[lang].list.forEach(item => {
+                const li = document.createElement('li');
+                li.innerHTML = item;
+                listContainer.appendChild(li);
+            });
+
+            // Toggle Class UI Elements
+            document.querySelectorAll('.lang-switcher button').forEach(btn => btn.classList.remove('active-lang'));
+            document.getElementById(`btn-${lang}`).classList.add('active-lang');
+        }
+
+        function scrollToDetails() {
+            document.getElementById('details-view').scrollIntoView({ 
+                behavior: 'smooth' 
+            });
+        }
+    </script>
+</body>
+</html>
