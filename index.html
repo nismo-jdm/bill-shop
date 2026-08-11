@@ -1,241 +1,370 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SwiftPOS — Billing System</title>
-
-  <link rel="stylesheet" href="style.css" />
-
-  <!-- Icons -->
-  <link
-    rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-  />
-
-  <!-- Barcode Scanner -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-
-  <!-- Barcode Generator -->
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-
-  <!-- PDF Export -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SwiftPOS — Vanilla JavaScript POS</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+*{font-family:'Space Grotesk',sans-serif;box-sizing:border-box}
+.mono{font-family:'IBM Plex Mono',monospace}.disp{font-family:'Space Grotesk',sans-serif}
+:root{--bg:#0B1220;--panel:#131B2E;--panel-2:#0F1729;--border:#232D42;--text:#E7ECF3;--text-muted:#8B96A8;--input-bg:#0F1729;--sidebar:#0B1220;--sidebar-border:#1B2436;--hover:#1A2338}
+body{margin:0;background:var(--bg);color:var(--text)}
+.input,.in{background:var(--input-bg);border:1px solid var(--border);color:var(--text)}
+.input::placeholder{color:var(--text-muted)}.muted{color:var(--text-muted)}
+.grad-primary{background:linear-gradient(90deg,#7C5CFC,#3B9DF5)}
+.panel{background:var(--panel);border:1px solid var(--border)}
+button{cursor:pointer}button:disabled{cursor:not-allowed}
+.modal-backdrop{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.receipt{background:#fff;color:#2A2E33;width:320px;padding:24px}
+@media print{body>*{display:none!important}.printable{display:block!important;position:fixed;inset:0}.no-print{display:none!important}}
+</style>
 </head>
 <body>
+<div id="app"></div>
+<script>
+const STORAGE_KEY='pos-app-data-v2';
+const uid=()=>Math.random().toString(36).slice(2,10);
+const money=n=>(Number(n)||0).toFixed(2);
+const todayStr=()=>new Date().toISOString().slice(0,10);
 
-  <div class="app-container">
+const DEFAULT_STATE={
+ settings:{businessName:'SwiftPOS',address:'',gstin:'',invoicePrefix:'INV-',nextInvoiceNumber:1001,taxRates:[0,5,12,18,28],currency:'₹'},
+ products:[
+  {id:uid(),name:'Coca Cola',sku:'COKE-1',barcode:'8901001',category:'Beverages',unit:'pcs',costPrice:30,price:40,taxRate:12,stock:50,reorderLevel:10},
+  {id:uid(),name:'Rice Bag',sku:'RICE-25KG',barcode:'8901002',category:'Groceries',unit:'pcs',costPrice:1000,price:1200,taxRate:5,stock:20,reorderLevel:5},
+  {id:uid(),name:'Milk Packet',sku:'MILK-1L',barcode:'8901003',category:'Dairy',unit:'pcs',costPrice:26,price:32,taxRate:0,stock:80,reorderLevel:20},
+  {id:uid(),name:'Chocolate',sku:'CHOC-BAR',barcode:'8901004',category:'Snacks',unit:'pcs',costPrice:18,price:25,taxRate:12,stock:100,reorderLevel:25}
+ ],
+ customers:[
+  {id:uid(),name:'Walk-in Customer',phone:'',address:'',creditBalance:0},
+  {id:uid(),name:'Rahul Nair',phone:'9876543210',address:'Tirur',creditBalance:250}
+ ],
+ invoices:[],heldBills:[]
+};
 
-    <!-- SIDEBAR -->
-    <aside class="sidebar glass">
-      <div class="logo">
-        <i class="fa-solid fa-store"></i>
-        <span>SwiftPOS</span>
-      </div>
+let data=loadData(), tab='billing', theme='dark';
+let cart=[], customerId=data.customers[0]?.id||'', discountAmt=0, payMethod='Cash';
+let query='', inventoryQuery='', editingProduct=null, editingCustomer=null, showHeld=false, receipt=null;
 
-      <nav>
-        <button class="nav-btn active" data-page="billingPage">
-          <i class="fa-solid fa-cash-register"></i>
-          Billing
-        </button>
-
-        <button class="nav-btn" data-page="productsPage">
-          <i class="fa-solid fa-box"></i>
-          Products
-        </button>
-
-        <button class="nav-btn" data-page="historyPage">
-          <i class="fa-solid fa-clock-rotate-left"></i>
-          Sales History
-        </button>
-      </nav>
-
-      <div class="bottom-actions">
-        <button id="themeToggle">
-          <i class="fa-solid fa-moon"></i>
-          Toggle Theme
-        </button>
-      </div>
-    </aside>
-
-    <!-- MAIN CONTENT -->
-    <main class="main-content">
-
-      <!-- TOPBAR -->
-      <header class="topbar glass">
-        <div>
-          <h1>Retail Billing System</h1>
-          <p>Professional POS Billing Software</p>
-        </div>
-
-        <div class="search-box">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <input type="text" id="searchProduct" placeholder="Search products..." />
-        </div>
-      </header>
-
-      <!-- BILLING PAGE -->
-      <section id="billingPage" class="page active-page">
-
-        <div class="billing-grid">
-
-          <!-- LEFT -->
-          <div class="scanner-section glass card">
-
-            <div class="section-header">
-              <h2>Barcode Scanner</h2>
-            </div>
-
-            <div class="barcode-controls">
-              <input
-                type="text"
-                id="barcodeInput"
-                placeholder="Scan barcode here..."
-              />
-
-              <button id="cameraBtn">
-                <i class="fa-solid fa-camera"></i>
-                Camera Scan
-              </button>
-            </div>
-
-            <div id="scanner-container"></div>
-
-            <div class="products-list" id="productsList"></div>
-          </div>
-
-          <!-- RIGHT -->
-          <div class="billing-section glass card">
-
-            <div class="section-header">
-              <h2>Current Bill</h2>
-              <span id="invoiceNo"></span>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Qty</th>
-                  <th>Price</th>
-                  <th>Total</th>
-                  <th></th>
-                </tr>
-              </thead>
-
-              <tbody id="cartBody"></tbody>
-            </table>
-
-            <div class="totals">
-              <div>
-                <span>Subtotal</span>
-                <strong id="subtotal">₹0</strong>
-              </div>
-
-              <div>
-                <span>GST (5%)</span>
-                <strong id="tax">₹0</strong>
-              </div>
-
-              <div>
-                <span>Discount</span>
-                <input type="number" id="discount" value="0" />
-              </div>
-
-              <div class="grand-total">
-                <span>Grand Total</span>
-                <strong id="grandTotal">₹0</strong>
-              </div>
-            </div>
-
-            <div class="action-buttons">
-              <button class="success" id="saveBillBtn">
-                <i class="fa-solid fa-floppy-disk"></i>
-                Save Bill
-              </button>
-
-              <button id="printBtn">
-                <i class="fa-solid fa-print"></i>
-                Print
-              </button>
-
-              <button id="pdfBtn">
-                <i class="fa-solid fa-file-pdf"></i>
-                Export PDF
-              </button>
-
-              <button class="danger" id="clearCartBtn">
-                <i class="fa-solid fa-trash"></i>
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- PRODUCTS PAGE -->
-      <section id="productsPage" class="page">
-
-        <div class="glass card">
-          <div class="section-header">
-            <h2>Product Management</h2>
-          </div>
-
-          <form id="productForm" class="product-form">
-            <input type="hidden" id="editIndex" />
-
-            <input type="text" id="productName" placeholder="Product Name" required />
-            <input type="text" id="productBarcode" placeholder="Barcode" required />
-            <input type="number" id="productPrice" placeholder="Price" required />
-            <input type="number" id="productStock" placeholder="Stock Quantity" required />
-            <input type="text" id="productCategory" placeholder="Category" required />
-
-            <button type="submit">Save Product</button>
-          </form>
-
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Barcode</th>
-                  <th>Price</th>
-                  <th>Stock</th>
-                  <th>Category</th>
-                  <th>Barcode</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody id="productsTable"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- HISTORY PAGE -->
-      <section id="historyPage" class="page">
-
-        <div class="glass card">
-          <div class="section-header">
-            <h2>Sales History</h2>
-          </div>
-
-          <div id="salesHistory"></div>
-        </div>
-      </section>
-
-    </main>
+function loadData(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||structuredClone(DEFAULT_STATE)}catch{return structuredClone(DEFAULT_STATE)}}
+function persist(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data))}
+function setTheme(t){theme=t;document.documentElement.style.setProperty('--bg',t==='dark'?'#0B1220':'#F3F4F8');document.documentElement.style.setProperty('--panel',t==='dark'?'#131B2E':'#FFFFFF');document.documentElement.style.setProperty('--panel-2',t==='dark'?'#0F1729':'#F8F9FC');document.documentElement.style.setProperty('--border',t==='dark'?'#232D42':'#E1E4EC');document.documentElement.style.setProperty('--text',t==='dark'?'#E7ECF3':'#1B2130');document.documentElement.style.setProperty('--text-muted',t==='dark'?'#8B96A8':'#727C8E');document.documentElement.style.setProperty('--input-bg',t==='dark'?'#0F1729':'#FFF');render()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function update(mut){mut(data);persist();render()}
+function nav(){return [
+ ['billing','Billing','▣'],['inventory','Products','▤'],['reports','Sales History','◷'],['customers','Customers','♟'],['settings','Settings','⚙']
+]}
+function appShell(content){
+ const title={billing:['Retail Billing System','Professional POS Billing Software'],inventory:['Products','Manage your inventory and stock levels'],customers:['Customers','Track customers and credit balances'],reports:['Sales History','Review invoices and business performance'],settings:['Settings','Configure your business and tax profile']}[tab];
+ return `<div class="min-h-screen flex">
+ <aside style="background:${theme==='dark'?'#0B1220':'#12172A'};border-right:1px solid var(--sidebar-border)" class="w-[210px] shrink-0 flex flex-col text-[#DCE3EA]">
+  <div class="px-5 py-5 flex items-center gap-2.5"><div class="w-8 h-8 rounded-lg grad-primary flex items-center justify-center">▣</div><span class="font-bold text-lg">${esc(data.settings.businessName||'SwiftPOS')}</span></div>
+  <nav class="flex-1 px-3 py-2 space-y-1">${nav().map(([id,label,icon])=>`<button onclick="tab='${id}';render()" class="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium ${tab===id?'grad-primary text-white':'text-[#8B96A8] hover:bg-white/5'}"><span>${icon}</span>${label}</button>`).join('')}</nav>
+  <div class="p-3"><button onclick="setTheme(theme==='dark'?'light':'dark')" class="w-full px-3.5 py-2.5 rounded-xl text-sm font-medium text-white grad-primary">${theme==='dark'?'☀':'☾'} Toggle Theme</button></div>
+ </aside>
+ <main class="flex-1 min-w-0 flex flex-col">
+  <div style="border-bottom:1px solid var(--border)" class="px-8 py-5 flex items-center justify-between gap-6">
+   <div><h1 class="text-2xl font-bold">${title[0]}</h1><p class="muted text-sm mt-0.5">${title[1]}</p></div>
+   <div class="relative w-72 shrink-0 hidden md:block">🔎 <input value="${esc(query)}" oninput="query=this.value;${tab==='billing'?'renderBilling()':''}" placeholder="Search products..." class="input w-[90%] px-3 py-2.5 rounded-xl text-sm"></div>
   </div>
+  <div id="content" class="flex-1 overflow-auto">${content}</div>
+ </main></div>`;
+}
 
-  <!-- PRINT AREA -->
-  <div id="printArea"></div>
+function render(){document.getElementById('app').innerHTML=appShell({billing:billingView,inventory:inventoryView,customers:customersView,reports:reportsView,settings:settingsView}[tab]());}
 
-  <!-- SOUND -->
-  <audio id="scanSound">
-    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-  </audio>
+function billingView(){
+ const q=query.trim().toLowerCase();
+ const products=data.products.filter(p=>!q||p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)||String(p.barcode).includes(q));
+ const subtotal=cart.reduce((s,i)=>s+i.price*i.qty,0);
+ const gst=cart.reduce((s,i)=>s+i.price*i.qty*(i.taxRate||0)/100,0);
+ const total=Math.max(0,subtotal+gst-(Number(discountAmt)||0));
+ const cur=data.settings.currency;
+ return `<div class="p-6 grid grid-cols-1 xl:grid-cols-[1fr_460px] gap-6 items-start">
+ <div class="panel rounded-2xl p-6"><h2 class="text-lg font-bold mb-4">Barcode Scanner</h2>
+  <div class="flex gap-3 mb-6"><input id="scan" value="${esc(query)}" oninput="query=this.value;renderBilling()" onkeydown="if(event.key==='Enter'&&${products.length?'true':'false'})addToCart(data.products.find(p=>p.id==='${products[0]?.id||''}'))" placeholder="Scan barcode here..." class="input flex-1 px-4 py-3 rounded-xl text-sm"><button class="grad-primary text-white px-4 py-3 rounded-xl text-sm">📷 Camera Scan</button></div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${products.map(p=>`<button onclick="addToCart(data.products.find(x=>x.id==='${p.id}'))" style="background:var(--panel-2);border:1px solid var(--border)" class="text-left rounded-xl p-4 hover:border-[#7C5CFC]"><div class="font-semibold mb-1">${esc(p.name)}</div><div class="font-bold text-lg mb-1">${cur}${money(p.price)}</div><div class="muted text-xs">${esc(p.category)}</div><div class="text-xs mt-0.5 ${p.stock<=p.reorderLevel?'text-amber-400 font-medium':'muted'}">Stock: ${p.stock}</div></button>`).join('')||'<div class="muted text-sm col-span-full py-8 text-center">No products match your search.</div>'}</div>
+ </div>
+ <div class="panel rounded-2xl p-6 flex flex-col"><div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Current Bill</h2><div class="flex gap-2"><span class="muted text-xs">Invoice #${data.settings.invoicePrefix}${data.settings.nextInvoiceNumber}</span><button onclick="showHeld=true;render()">⏸ ${data.heldBills.length?`<sup>${data.heldBills.length}</sup>`:''}</button></div></div>
+ <select onchange="customerId=this.value;renderBilling()" class="input w-full px-3 py-2 rounded-xl text-sm mb-3">${data.customers.map(c=>`<option value="${c.id}" ${c.id===customerId?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+ ${cart.length?`<div class="mb-4"><div class="grid grid-cols-[1fr_auto_auto_auto] gap-3 muted text-xs uppercase pb-2" style="border-bottom:1px solid var(--border)"><span>Product</span><span>Qty</span><span>Price</span><span>Total</span></div><div class="space-y-2 max-h-[320px] overflow-auto">${cart.map(i=>`<div class="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center text-sm py-1"><span class="font-medium truncate">${esc(i.name)}</span><span class="flex items-center gap-1"><button onclick="setQty('${i.productId}',${i.qty-1})" class="w-6 h-6 rounded-full grad-primary text-white">−</button><span class="w-4 text-center mono">${i.qty}</span><button onclick="setQty('${i.productId}',${i.qty+1})" class="w-6 h-6 rounded-full grad-primary text-white">+</button></span><span class="mono">${cur}${money(i.price)}</span><span class="mono font-semibold">${cur}${money(i.price*i.qty)} <button onclick="removeLine('${i.productId}')">✕</button></span></div>`).join('')}</div></div>`:'<div class="muted text-sm text-center py-12">No items yet — click a product to add it.</div>'}
+ <div style="border-top:1px solid var(--border)" class="pt-4 space-y-2 text-sm mono"><div class="flex justify-between"><span class="muted">Subtotal</span><span>${cur}${money(subtotal)}</span></div><div class="flex justify-between"><span class="muted">GST</span><span>${cur}${money(gst)}</span></div><div class="flex justify-between items-center"><span class="muted">Discount</span><input type="number" value="${discountAmt}" oninput="discountAmt=Number(this.value)||0;renderBilling()" class="input w-24 text-right px-2 py-1.5 rounded-lg"></div></div>
+ <div style="border-top:1px solid var(--border)" class="pt-4 mt-3 flex justify-between"><span class="text-lg font-bold">Grand Total</span><span class="text-2xl font-bold">${cur}${money(total)}</span></div>
+ <div class="grid grid-cols-2 gap-2.5 mt-5"><button onclick="saveBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-emerald-600 text-white disabled:opacity-40">💾 Save Bill</button><button onclick="printBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-blue-600 text-white disabled:opacity-40">🖨 Print</button><button onclick="printBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-violet-600 text-white disabled:opacity-40">⇩ Export PDF</button><button onclick="resetSale()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-red-600 text-white disabled:opacity-40">🗑 Clear</button></div>
+ <button onclick="holdBill()" ${!cart.length?'disabled':''} class="mt-2.5 w-full px-3 py-2.5 rounded-xl disabled:opacity-40" style="background:var(--panel-2);border:1px solid var(--border)">⏸ Hold Bill</button></div>
+ ${showHeld?heldModal():''}${receipt?receiptModal():''}</div>`;
+}
+function renderBilling(){document.getElementById('content').innerHTML=billingView()}
 
-  <script src="script.js"></script>
+function addToCart(p){if(!p)return;const i=cart.find(x=>x.productId===p.id);if(i)i.qty++;else cart.push({productId:p.id,name:p.name,price:p.price,qty:1,taxRate:p.taxRate});renderBilling()}
+function setQty(id,q){if(q<=0)return removeLine(id);cart=cart.map(i=>i.productId===id?{...i,qty:q}:i);renderBilling()}
+function removeLine(id){cart=cart.filter(i=>i.productId!==id);renderBilling()}
+function resetSale(){cart=[];discountAmt=0;query='';renderBilling()}
+function holdBill(){if(!cart.length)return;update(d=>d.heldBills.push({id:uid(),cart:structuredClone(cart),discountAmt,customerId,savedAt:new Date().toISOString()}));resetSale()}
+function resumeBill(id){const h=data.heldBills.find(x=>x.id===id);if(!h)return;cart=h.cart;discountAmt=h.discountAmt||0;customerId=h.customerId;update(d=>d.heldBills=d.heldBills.filter(x=>x.id!==id));showHeld=false}
+function buildInvoice(){const subtotal=cart.reduce((s,i)=>s+i.price*i.qty,0),gst=cart.reduce((s,i)=>s+i.price*i.qty*(i.taxRate||0)/100,0),total=Math.max(0,subtotal+gst-discountAmt);return{id:uid(),invoiceNo:data.settings.invoicePrefix+data.settings.nextInvoiceNumber,date:new Date().toISOString(),customerId,items:structuredClone(cart),subtotal,discount:Number(discountAmt)||0,taxTotal:gst,total,payments:[{method:payMethod,amount:total}],status:'completed'}}
+function commitInvoice(inv){update(d=>{d.invoices.push(inv);d.products=d.products.map(p=>{const l=cart.find(c=>c.productId===p.id);return l?{...p,stock:Math.max(0,p.stock-l.qty)}:p});d.settings.nextInvoiceNumber++})}
+function saveBill(){if(!cart.length)return;commitInvoice(buildInvoice());resetSale()}
+function printBill(){if(!cart.length)return;const inv=buildInvoice();commitInvoice(inv);receipt=inv;resetSale();render()}
+
+function heldModal(){return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-md p-5"><div class="flex justify-between mb-4"><h3 class="font-bold text-lg">Held Bills</h3><button onclick="showHeld=false;render()">✕</button></div>${data.heldBills.length?data.heldBills.map(h=>`<button onclick="resumeBill('${h.id}')" class="w-full flex justify-between px-3 py-3 rounded-xl mb-2 text-left" style="border:1px solid var(--border)"><span>${h.cart.length} item(s)<small class="block muted">${new Date(h.savedAt).toLocaleTimeString()}</small></span><b>${data.settings.currency}${money(h.cart.reduce((s,i)=>s+i.price*i.qty,0))} ›</b></button>`).join(''):'<div class="muted text-center py-6">No held bills.</div>'}</div></div>`}
+function receiptModal(){const s=data.settings,c=data.customers.find(x=>x.id===receipt.customerId);return `<div class="modal-backdrop"><div><div id="receipt-print" class="receipt mono text-[13px]"><div class="mb-3 text-lg">Order<br>Receipt #${receipt.invoiceNo}</div><div class="text-[#5A6B7A] mb-3">${esc(s.businessName)}<br>${s.gstin?'GSTIN '+esc(s.gstin)+'<br>':''}${new Date(receipt.date).toLocaleString()}${s.address?'<br>'+esc(s.address):''}</div><hr class="my-3">${esc(c?.name||'Walk-in')}<br>${c?.phone?'Phone: '+esc(c.phone):''}<hr class="my-3">${receipt.items.map(i=>`${i.qty} × ${esc(i.name)} ${s.currency}${money(i.price*i.qty*(1+(i.taxRate||0)/100))}`).join('<br>')}<hr class="my-3">Subtotal ${money(receipt.subtotal)}<br>${receipt.discount?'Discount -'+money(receipt.discount)+'<br>':''}GST ${money(receipt.taxTotal)}<br><b>Order Total ${s.currency}${money(receipt.total)}</b><div class="text-center my-5">* * * * * * * * *<br><b>THANK YOU!</b></div></div><div class="flex gap-2 mt-3 no-print"><button onclick="window.print()" class="flex-1 bg-white text-black px-3 py-2 rounded-xl">🖨 Print</button><button onclick="receipt=null;render()" class="flex-1 grad-primary text-white px-3 py-2 rounded-xl">New Sale</button></div></div></div>`}
+
+function inventoryView(){const f=data.products.filter(p=>p.name.toLowerCase().includes(inventoryQuery.toLowerCase())||p.sku.toLowerCase().includes(inventoryQuery.toLowerCase()));return `<div class="p-6"><div class="flex justify-between mb-5"><input value="${esc(inventoryQuery)}" oninput="inventoryQuery=this.value;render()" placeholder="Search products…" class="input w-full max-w-sm px-3 py-2.5 rounded-xl text-sm"><button onclick="editingProduct={id:uid(),name:'',sku:'',barcode:'',category:'',unit:'pcs',costPrice:0,price:0,taxRate:0,stock:0,reorderLevel:5};render()" class="grad-primary text-white px-4 py-2.5 rounded-xl">＋ Add Product</button></div><div class="panel rounded-2xl overflow-auto"><table class="w-full text-sm"><thead class="muted text-xs uppercase"><tr><th class="text-left px-4 py-3">Name</th><th>SKU</th><th>Category</th><th>Cost</th><th>Price</th><th>GST%</th><th>Stock</th><th></th></tr></thead><tbody>${f.map(p=>`<tr style="border-top:1px solid var(--border)"><td class="px-4 py-3 font-medium">${esc(p.name)}</td><td class="mono muted">${esc(p.sku)}</td><td>${esc(p.category)}</td><td class="mono">${money(p.costPrice)}</td><td class="mono">${money(p.price)}</td><td>${p.taxRate}%</td><td class="${p.stock<=p.reorderLevel?'text-amber-400 font-semibold':''}">${p.stock}</td><td><button onclick="editingProduct=structuredClone(data.products.find(x=>x.id==='${p.id}'));render()">Edit</button> <button onclick="deleteProduct('${p.id}')" class="text-red-400">Delete</button></td></tr>`).join('')}</tbody></table></div>${editingProduct?productModal():''}</div>`}
+function deleteProduct(id){if(confirm('Delete this product?'))update(d=>d.products=d.products.filter(p=>p.id!==id))}
+function productModal(){const p=editingProduct, field=(label,key,type='text')=>`<label class="block"><span class="muted text-xs">${label}</span><input type="${type}" value="${esc(p[key])}" oninput="editingProduct.${key}=${type==='number'?'Number(this.value)':'this.value'}" class="in w-full px-3 py-2 rounded-lg"></label>`;return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-md p-6"><div class="flex justify-between mb-4"><h3 class="font-bold">${p.name?'Edit Product':'Add Product'}</h3><button onclick="editingProduct=null;render()">✕</button></div><div class="grid grid-cols-2 gap-3">${field('Name','name')} ${field('SKU','sku')} ${field('Barcode','barcode')} ${field('Category','category')} ${field('Unit','unit')} ${field('Cost Price','costPrice','number')} ${field('Selling Price','price','number')}<label>GST<select onchange="editingProduct.taxRate=Number(this.value)" class="in w-full px-3 py-2 rounded-lg">${data.settings.taxRates.map(r=>`<option ${r===p.taxRate?'selected':''}>${r}</option>`).join('')}</select></label>${field('Stock','stock','number')}${field('Reorder Level','reorderLevel','number')}</div><button onclick="saveProduct()" class="w-full mt-5 grad-primary text-white px-4 py-3 rounded-xl">Save Product</button></div></div>`}
+function saveProduct(){if(!editingProduct.name)return;const p=structuredClone(editingProduct);update(d=>{const i=d.products.findIndex(x=>x.id===p.id);if(i>=0)d.products[i]=p;else d.products.push(p)});editingProduct=null}
+
+function customersView(){return `<div class="p-6"><div class="flex justify-between mb-5"><h2 class="text-lg font-bold">Customers</h2><button onclick="editingCustomer={id:uid(),name:'',phone:'',address:'',creditBalance:0};render()" class="grad-primary text-white px-4 py-2.5 rounded-xl">＋ Add Customer</button></div><div class="panel rounded-2xl overflow-auto"><table class="w-full text-sm"><thead class="muted text-xs uppercase"><tr><th class="text-left px-4 py-3">Name</th><th>Phone</th><th>Address</th><th>Credit Due</th><th>Purchases</th><th></th></tr></thead><tbody>${data.customers.map(c=>`<tr style="border-top:1px solid var(--border)"><td class="px-4 py-3">${esc(c.name)}</td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td>${c.creditBalance?'₹'+money(c.creditBalance):'—'}</td><td>${data.invoices.filter(i=>i.customerId===c.id).length}</td><td><button onclick="editingCustomer=structuredClone(data.customers.find(x=>x.id==='${c.id}'));render()">Edit</button> <button onclick="deleteCustomer('${c.id}')" class="text-red-400">Delete</button></td></tr>`).join('')}</tbody></table></div>${editingCustomer?customerModal():''}</div>`}
+function deleteCustomer(id){if(confirm('Delete this customer?'))update(d=>d.customers=d.customers.filter(c=>c.id!==id))}
+function customerModal(){const c=editingCustomer,field=(label,key,type='text')=>`<label class="block"><span class="muted text-xs">${label}</span><input type="${type}" value="${esc(c[key])}" oninput="editingCustomer.${key}=${type==='number'?'Number(this.value)':'this.value'}" class="in w-full px-3 py-2 rounded-lg"></label>`;return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-sm p-6"><div class="flex justify-between mb-4"><h3 class="font-bold">${c.name?'Edit Customer':'Add Customer'}</h3><button onclick="editingCustomer=null;render()">✕</button></div><div class="space-y-3">${field('Name','name')}${field('Phone','phone')}${field('Address','address')}${field('Credit Balance Due','creditBalance','number')}</div><button onclick="saveCustomer()" class="w-full mt-5 grad-primary text-white px-4 py-3 rounded-xl">Save Customer</button></div></div>`}
+function saveCustomer(){if(!editingCustomer.name)return;const c=structuredClone(editingCustomer);update(d=>{const i=d.customers.findIndex(x=>x.id===c.id);if(i>=0)d.customers[i]=c;else d.customers.push(c)});editingCustomer=null}
+
+let selectedInvoiceId=null;
+function reportsView(){
+ const today=todayStr(),todayInv=data.invoices.filter(i=>i.date.slice(0,10)===today),
+ sales=data.invoices.reduce((s,i)=>s+i.total,0),todaySales=todayInv.reduce((s,i)=>s+i.total,0),
+ tax=data.invoices.reduce((s,i)=>s+i.taxTotal,0),low=data.products.filter(p=>p.stock<=p.reorderLevel);
+ const map={};data.invoices.forEach(i=>i.items.forEach(x=>map[x.name]=(map[x.name]||0)+x.qty));
+ const top=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5);
+ return `<div class="p-6">
+ <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">${stat("Today's Sales",'₹'+money(todaySales),todayInv.length+' bills')}${stat('Total Sales','₹'+money(sales),data.invoices.length+' bills')}${stat('Tax Collected','₹'+money(tax),'all time')}${stat('Low Stock Items',low.length,'need reorder')}</div>
+ <div class="grid md:grid-cols-2 gap-6">
+  <div class="panel rounded-2xl p-4"><h3 class="font-semibold mb-3">Top Selling Items</h3>${top.map(x=>`<div class="flex justify-between py-1.5" style="border-bottom:1px solid var(--border)"><span>${esc(x[0])}</span><span>${x[1]} sold</span></div>`).join('')||'<span class="muted">No sales yet.</span>'}</div>
+  <div class="panel rounded-2xl p-4"><h3 class="font-semibold mb-3">⚠ Low Stock Alerts</h3>${low.map(p=>`<div class="flex justify-between py-1.5"><span>${esc(p.name)}</span><span class="text-amber-400">${p.stock} left</span></div>`).join('')||'<span class="muted">All stock levels healthy.</span>'}</div>
+ </div>
+ <div class="panel rounded-2xl p-4 mt-6">
+  <div class="flex items-center justify-between gap-3 mb-4"><h3 class="font-semibold">All Invoices — Detailed</h3><div class="flex items-center gap-2"><span class="muted text-xs">${data.invoices.length} invoice(s)</span><button onclick="exportAllSalesPDF()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm">⇩ Export All Sales PDF</button></div></div>
+  ${data.invoices.length===0?'<div class="muted text-center py-8">No invoices yet.</div>':
+  `<div class="space-y-4">${[...data.invoices].reverse().map(invoiceCard).join('')}</div>`}
+ </div></div>`;
+}
+function invoiceCard(i){
+ const c=data.customers.find(x=>x.id===i.customerId);
+ const cur=data.settings.currency;
+ return `<details class="rounded-xl overflow-hidden" style="border:1px solid var(--border)">
+ <summary class="cursor-pointer p-4 list-none">
+  <div class="grid grid-cols-1 md:grid-cols-6 gap-3 items-center">
+   <div><span class="muted text-xs block">Invoice</span><b class="mono">${esc(i.invoiceNo)}</b></div>
+   <div><span class="muted text-xs block">Date & Time</span>${new Date(i.date).toLocaleString()}</div>
+   <div><span class="muted text-xs block">Customer</span>${esc(c?.name||'Walk-in Customer')}</div>
+   <div><span class="muted text-xs block">Items</span>${i.items.reduce((n,x)=>n+x.qty,0)}</div>
+   <div><span class="muted text-xs block">Payment</span>${esc(i.payments?.map(p=>p.method).join(', ')||'Cash')}</div>
+   <div class="text-right"><span class="muted text-xs block">Grand Total</span><b class="mono text-lg">${cur}${money(i.total)}</b></div>
+  </div>
+ </summary>
+ <div class="p-4" style="border-top:1px solid var(--border);background:var(--panel-2)">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-sm">
+   <div><b>Customer Details</b><div class="muted mt-1">Name: ${esc(c?.name||'Walk-in Customer')}<br>Phone: ${esc(c?.phone||'—')}<br>Address: ${esc(c?.address||'—')}</div></div>
+   <div><b>Invoice Details</b><div class="muted mt-1">Invoice No: ${esc(i.invoiceNo)}<br>Date: ${new Date(i.date).toLocaleDateString()}<br>Time: ${new Date(i.date).toLocaleTimeString()}<br>Status: ${esc(i.status||'completed')}</div></div>
+  </div>
+  <div class="overflow-auto"><table class="w-full text-sm">
+   <thead class="muted text-xs uppercase"><tr style="border-bottom:1px solid var(--border)">
+    <th class="text-left py-2">#</th><th class="text-left py-2">Product</th><th class="text-right py-2">Qty</th><th class="text-right py-2">Unit Price</th><th class="text-right py-2">GST %</th><th class="text-right py-2">GST</th><th class="text-right py-2">Line Total</th>
+   </tr></thead>
+   <tbody>${i.items.map((x,n)=>{const base=x.price*x.qty,g=base*(x.taxRate||0)/100;return `<tr style="border-bottom:1px solid var(--border)"><td class="py-2">${n+1}</td><td class="py-2">${esc(x.name)}</td><td class="py-2 text-right">${x.qty}</td><td class="py-2 text-right mono">${cur}${money(x.price)}</td><td class="py-2 text-right">${x.taxRate||0}%</td><td class="py-2 text-right mono">${cur}${money(g)}</td><td class="py-2 text-right mono font-medium">${cur}${money(base+g)}</td></tr>`}).join('')}</tbody>
+  </table></div>
+  <div class="flex justify-end mt-4"><div class="w-full md:w-80 space-y-1 text-sm">
+   <div class="flex justify-between"><span class="muted">Subtotal</span><span class="mono">${cur}${money(i.subtotal)}</span></div>
+   <div class="flex justify-between"><span class="muted">GST</span><span class="mono">${cur}${money(i.taxTotal)}</span></div>
+   <div class="flex justify-between"><span class="muted">Discount</span><span class="mono">-${cur}${money(i.discount||0)}</span></div>
+   <div class="flex justify-between text-base font-bold pt-2" style="border-top:1px solid var(--border)"><span>Grand Total</span><span class="mono">${cur}${money(i.total)}</span></div>
+   ${(i.payments||[]).map(p=>`<div class="flex justify-between"><span class="muted">Paid (${esc(p.method)})</span><span class="mono">${cur}${money(p.amount)}</span></div>`).join('')}
+  </div></div>
+  <div class="flex justify-end mt-4"><button onclick="printInvoiceById('${i.id}')" class="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm">🖨 Print Invoice</button></div>
+ </div></details>`;
+}
+function exportAllSalesPDF(){
+ const {jsPDF}=window.jspdf||{};
+ if(!jsPDF){alert('PDF library could not be loaded. Please check your internet connection.');return}
+ if(!data.invoices.length){alert('There are no sales/invoices to export.');return}
+ const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+ const s=data.settings;
+ 
+ // FIX: Map '₹' to 'Rs.' specifically for PDF generation to avoid standard font rendering corruption
+ const cur = (s.currency === '₹') ? 'Rs. ' : (s.currency || '');
+ 
+ const totalSales=data.invoices.reduce((a,i)=>a+Number(i.total||0),0);
+ const totalTax=data.invoices.reduce((a,i)=>a+Number(i.taxTotal||0),0);
+ const totalDiscount=data.invoices.reduce((a,i)=>a+Number(i.discount||0),0);
+ const totalItems=data.invoices.reduce((a,i)=>a+i.items.reduce((n,x)=>n+Number(x.qty||0),0),0);
+
+ doc.setFontSize(18);doc.text(s.businessName||'SwiftPOS',14,15);
+ doc.setFontSize(11);doc.text('All Sales Report',14,22);
+ doc.setFontSize(8);doc.text(`Generated: ${new Date().toLocaleString()}`,14,28);
+ if(s.address)doc.text(String(s.address),14,33);
+ if(s.gstin)doc.text('GSTIN: '+String(s.gstin),14,38);
+
+ doc.setFontSize(9);
+ doc.text(`Invoices: ${data.invoices.length}`,190,15);
+ doc.text(`Items Sold: ${totalItems}`,190,21);
+ doc.text(`Subtotal: ${cur}${money(data.invoices.reduce((a,i)=>a+Number(i.subtotal||0),0))}`,190,27);
+ doc.text(`Discount: ${cur}${money(totalDiscount)}`,190,33);
+ doc.text(`GST: ${cur}${money(totalTax)}`,190,39);
+ doc.text(`Grand Total: ${cur}${money(totalSales)}`,245,39);
+
+ const rows=[];
+ [...data.invoices].reverse().forEach((inv)=>{
+   const customer=data.customers.find(c=>c.id===inv.customerId);
+   inv.items.forEach((item,index)=>{
+     const base=Number(item.price||0)*Number(item.qty||0);
+     const gst=base*(Number(item.taxRate||0)/100);
+     rows.push([
+       index===0?inv.invoiceNo:'',
+       index===0?new Date(inv.date).toLocaleString():'',
+       index===0?(customer?.name||'Walk-in Customer'):'',
+       item.name,
+       item.qty,
+       `${cur}${money(item.price)}`,
+       `${item.taxRate||0}%`,
+       `${cur}${money(gst)}`,
+       `${cur}${money(base+gst)}`,
+       index===0?`${cur}${money(inv.total)}`:''
+     ]);
+   });
+ });
+
+ doc.autoTable({
+   startY:45,
+   head:[['Invoice #','Date / Time','Customer','Product','Qty','Unit Price','GST','GST Amt','Line Total','Invoice Total']],
+   body:rows,
+   theme:'grid',
+   styles:{fontSize:7,cellPadding:2},
+   headStyles:{fontSize:7,fontStyle:'bold'},
+   columnStyles:{0:{cellWidth:25},1:{cellWidth:29},2:{cellWidth:32},3:{cellWidth:42},4:{cellWidth:12,halign:'right'},5:{cellWidth:22,halign:'right'},6:{cellWidth:12,halign:'right'},7:{cellWidth:22,halign:'right'},8:{cellWidth:24,halign:'right'},9:{cellWidth:25,halign:'right'}},
+   didDrawPage:(d)=>{
+     doc.setFontSize(7);
+     doc.text(`Page ${doc.internal.getNumberOfPages()}`,275,202,{align:'right'});
+   }
+ });
+ const finalY=doc.lastAutoTable?.finalY||45;
+ doc.setFontSize(10);
+ doc.text(`Total Sales: ${cur}${money(totalSales)}`,14,Math.min(finalY+10,190));
+ doc.save(`SwiftPOS_All_Sales_${todayStr()}.pdf`);
+}
+ function header(){
+   doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(25,25,25);
+   doc.text(clean(data.settings.businessName||'SwiftPOS'),10,13);
+   doc.setFont('helvetica','normal');doc.setFontSize(10);
+   doc.text('ALL SALES REPORT',10,20);
+   doc.setFontSize(7);
+   doc.text('Generated: '+new Date().toLocaleString(),10,26);
+   if(data.settings.address)doc.text(clean(data.settings.address),10,31);
+   if(data.settings.gstin)doc.text('GSTIN: '+clean(data.settings.gstin),10,36);
+
+   doc.setDrawColor(210,210,210);doc.setLineWidth(.25);
+   doc.roundedRect(205,8,82,29,2,2,'S');
+   doc.setFontSize(7.5);doc.setFont('helvetica','normal');
+   const summary=[
+    ['Invoices',String(invoices.length)],
+    ['Items Sold',String(totalItems)],
+    ['Subtotal',cur+money(totalSubtotal)],
+    ['Discount',cur+money(totalDiscount)],
+    ['GST',cur+money(totalTax)],
+    ['Grand Total',cur+money(totalSales)]
+   ];
+   summary.forEach((r,n)=>{
+     const yy=13+n*4.5;
+     doc.text(r[0],209,yy);
+     doc.text(r[1],283,yy,{align:'right'});
+   });
+ }
+ function tableHeader(y){
+   doc.setFillColor(20,184,166);doc.rect(left,y,pageW-left-right,7,'F');
+   doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(6.3);
+   cols.forEach(c=>doc.text(c.title,c.x+1,y+4.7));
+   doc.setTextColor(35,35,35);doc.setFont('helvetica','normal');
+   return y+7;
+ }
+ function newPage(){
+   doc.addPage();header();return tableHeader(44);
+ }
+
+ header();
+ let y=44;
+ y=tableHeader(y);
+ doc.setFontSize(6.2);
+
+ invoices.forEach(inv=>{
+   const customer=data.customers.find(c=>c.id===inv.customerId);
+   inv.items.forEach((item,index)=>{
+     const base=Number(item.price||0)*Number(item.qty||0);
+     const gst=base*(Number(item.taxRate||0)/100);
+     const values=[
+       index===0?clean(inv.invoiceNo):'',
+       index===0?clean(new Date(inv.date).toLocaleString()):'',
+       index===0?clean(customer?.name||'Walk-in Customer'):'',
+       clean(item.name||''),
+       String(item.qty||0),
+       cur+money(item.price),
+       String(item.taxRate||0)+'%',
+       cur+money(gst),
+       cur+money(base+gst),
+       index===0?cur+money(inv.total):''
+     ];
+     const productLines=wrap(values[3],41);
+     const customerLines=wrap(values[2],30);
+     const dateLines=wrap(values[1],27);
+     const rowH=Math.max(7,productLines.length*3.2,customerLines.length*3.2,dateLines.length*3.2);
+
+     if(y+rowH>195){y=newPage();}
+     doc.setDrawColor(205,205,205);doc.setLineWidth(.15);
+     doc.rect(left,y,pageW-left-right,rowH);
+     cols.slice(0,-1).forEach(c=>doc.line(c.x+c.w,y,c.x+c.w,y+rowH));
+     doc.line(cols[8].x+cols[8].w,y,cols[8].x+cols[8].w,y+rowH);
+
+     const lines=[values[0],dateLines,customerLines,productLines,values[4],values[5],values[6],values[7],values[8],values[9]];
+     cols.forEach((c,ci)=>{
+       const arr=Array.isArray(lines[ci])?lines[ci]:[lines[ci]];
+       arr.forEach((txt,li)=>{
+         if(txt)doc.text(txt,c.x+1,y+4+li*3.2);
+       });
+     });
+     y+=rowH;
+   });
+ });
+
+ if(y+27>195)y=newPage();
+ y+=8;
+ doc.setFont('helvetica','bold');doc.setFontSize(9);
+ doc.text('SALES SUMMARY',10,y);
+ doc.setFont('helvetica','normal');doc.setFontSize(8);
+ const sumRows=[
+   ['Total Invoices',String(invoices.length)],
+   ['Total Items Sold',String(totalItems)],
+   ['Subtotal',cur+money(totalSubtotal)],
+   ['Discount',cur+money(totalDiscount)],
+   ['GST',cur+money(totalTax)],
+   ['GRAND TOTAL',cur+money(totalSales)]
+ ];
+ sumRows.forEach((r,n)=>{
+   const yy=y+6+n*4.5;
+   if(n===5)doc.setFont('helvetica','bold');
+   doc.text(r[0],210,yy);
+   doc.text(r[1],285,yy,{align:'right'});
+   if(n===5)doc.setFont('helvetica','normal');
+ });
+
+ doc.setFontSize(6.5);doc.setTextColor(110,110,110);
+ for(let pg=1;pg<=doc.getNumberOfPages();pg++){
+   doc.setPage(pg);doc.text('Page '+pg+' of '+doc.getNumberOfPages(),287,204,{align:'right'});
+ }
+ doc.save('SwiftPOS_All_Sales_'+todayStr()+'.pdf');
+}
+function printInvoiceById(id){
+ const inv=data.invoices.find(i=>i.id===id);if(!inv)return;
+ receipt=inv;render();
+ setTimeout(()=>window.print(),150);
+}
+function stat(label,value,sub){return `<div class="panel rounded-2xl p-4"><div class="muted text-xs uppercase">${label}</div><div class="text-2xl font-bold mono mt-1">${value}</div><div class="muted text-xs mt-0.5">${sub}</div></div>`}
+
+function settingsView(){const s=data.settings;return `<div class="p-6 max-w-lg"><div class="panel rounded-2xl p-5 space-y-4"><label>Business Name<input value="${esc(s.businessName)}" oninput="data.settings.businessName=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Address<input value="${esc(s.address)}" oninput="data.settings.address=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>GSTIN / Tax ID<input value="${esc(s.gstin)}" oninput="data.settings.gstin=this.value" class="in w-full px-3 py-2 rounded-lg"></label><div class="grid grid-cols-2 gap-3"><label>Invoice Prefix<input value="${esc(s.invoicePrefix)}" oninput="data.settings.invoicePrefix=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Next Invoice #<input type="number" value="${s.nextInvoiceNumber}" oninput="data.settings.nextInvoiceNumber=Number(this.value)" class="in w-full px-3 py-2 rounded-lg"></label></div><label>Currency Symbol<input value="${esc(s.currency)}" oninput="data.settings.currency=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Tax Rate Slabs<input value="${s.taxRates.join(',')}" oninput="data.settings.taxRates=this.value.split(',').map(x=>Number(x.trim())).filter(x=>!isNaN(x))" class="in w-full px-3 py-2 rounded-lg"></label></div><button onclick="persist();render()" class="mt-5 grad-primary text-white px-5 py-3 rounded-xl font-semibold">Save Settings</button></div>`}
+
+render();
+</script>
 </body>
 </html>
