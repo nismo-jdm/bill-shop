@@ -1,809 +1,257 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Plus, Minus, Trash2, PauseCircle, Printer, X, Package, Users, History, Settings as SettingsIcon, Store, AlertTriangle, Check, ChevronRight, Save, FileDown, Camera, Sun, Moon } from "lucide-react";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SwiftPOS — Vanilla JavaScript POS</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+*{font-family:'Space Grotesk',sans-serif;box-sizing:border-box}
+.mono{font-family:'IBM Plex Mono',monospace}.disp{font-family:'Space Grotesk',sans-serif}
+:root{--bg:#0B1220;--panel:#131B2E;--panel-2:#0F1729;--border:#232D42;--text:#E7ECF3;--text-muted:#8B96A8;--input-bg:#0F1729;--sidebar:#0B1220;--sidebar-border:#1B2436;--hover:#1A2338}
+body{margin:0;background:var(--bg);color:var(--text)}
+.input,.in{background:var(--input-bg);border:1px solid var(--border);color:var(--text)}
+.input::placeholder{color:var(--text-muted)}.muted{color:var(--text-muted)}
+.grad-primary{background:linear-gradient(90deg,#7C5CFC,#3B9DF5)}
+.panel{background:var(--panel);border:1px solid var(--border)}
+button{cursor:pointer}button:disabled{cursor:not-allowed}
+.modal-backdrop{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.receipt{background:#fff;color:#2A2E33;width:320px;padding:24px}
+@media print{body>*{display:none!important}.printable{display:block!important;position:fixed;inset:0}.no-print{display:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const STORAGE_KEY='pos-app-data-v2';
+const uid=()=>Math.random().toString(36).slice(2,10);
+const money=n=>(Number(n)||0).toFixed(2);
+const todayStr=()=>new Date().toISOString().slice(0,10);
 
-const uid = () => Math.random().toString(36).slice(2, 10);
-const money = (n) => (Number(n) || 0).toFixed(2);
-const todayStr = () => new Date().toISOString().slice(0, 10);
-
-const DEFAULT_STATE = {
-  settings: {
-    businessName: "SwiftPOS",
-    address: "",
-    gstin: "",
-    invoicePrefix: "INV-",
-    nextInvoiceNumber: 1001,
-    taxRates: [0, 5, 12, 18, 28],
-    currency: "₹",
-  },
-  products: [
-    { id: uid(), name: "Coca Cola", sku: "COKE-1", barcode: "8901001", category: "Beverages", unit: "pcs", costPrice: 30, price: 40, taxRate: 12, stock: 50, reorderLevel: 10 },
-    { id: uid(), name: "Rice Bag", sku: "RICE-25KG", barcode: "8901002", category: "Groceries", unit: "pcs", costPrice: 1000, price: 1200, taxRate: 5, stock: 20, reorderLevel: 5 },
-    { id: uid(), name: "Milk Packet", sku: "MILK-1L", barcode: "8901003", category: "Dairy", unit: "pcs", costPrice: 26, price: 32, taxRate: 0, stock: 80, reorderLevel: 20 },
-    { id: uid(), name: "Chocolate", sku: "CHOC-BAR", barcode: "8901004", category: "Snacks", unit: "pcs", costPrice: 18, price: 25, taxRate: 12, stock: 100, reorderLevel: 25 },
-  ],
-  customers: [
-    { id: uid(), name: "Walk-in Customer", phone: "", address: "", creditBalance: 0 },
-    { id: uid(), name: "Rahul Nair", phone: "9876543210", address: "Tirur", creditBalance: 250 },
-  ],
-  invoices: [],
-  heldBills: [],
+const DEFAULT_STATE={
+ settings:{businessName:'SwiftPOS',address:'',gstin:'',invoicePrefix:'INV-',nextInvoiceNumber:1001,taxRates:[0,5,12,18,28],currency:'₹'},
+ products:[
+  {id:uid(),name:'Coca Cola',sku:'COKE-1',barcode:'8901001',category:'Beverages',unit:'pcs',costPrice:30,price:40,taxRate:12,stock:50,reorderLevel:10},
+  {id:uid(),name:'Rice Bag',sku:'RICE-25KG',barcode:'8901002',category:'Groceries',unit:'pcs',costPrice:1000,price:1200,taxRate:5,stock:20,reorderLevel:5},
+  {id:uid(),name:'Milk Packet',sku:'MILK-1L',barcode:'8901003',category:'Dairy',unit:'pcs',costPrice:26,price:32,taxRate:0,stock:80,reorderLevel:20},
+  {id:uid(),name:'Chocolate',sku:'CHOC-BAR',barcode:'8901004',category:'Snacks',unit:'pcs',costPrice:18,price:25,taxRate:12,stock:100,reorderLevel:25}
+ ],
+ customers:[
+  {id:uid(),name:'Walk-in Customer',phone:'',address:'',creditBalance:0},
+  {id:uid(),name:'Rahul Nair',phone:'9876543210',address:'Tirur',creditBalance:250}
+ ],
+ invoices:[],heldBills:[]
 };
 
-const STORAGE_KEY = "pos-app-data-v2";
+let data=loadData(), tab='billing', theme='dark';
+let cart=[], customerId=data.customers[0]?.id||'', discountAmt=0, payMethod='Cash';
+let query='', inventoryQuery='', editingProduct=null, editingCustomer=null, showHeld=false, receipt=null;
 
-function useStorage() {
-  const [data, setData] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const saveTimer = useRef(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await window.storage.get(STORAGE_KEY, false);
-        setData(res ? JSON.parse(res.value) : DEFAULT_STATE);
-      } catch (e) {
-        setData(DEFAULT_STATE);
-      }
-      setLoaded(true);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!loaded || !data) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        await window.storage.set(STORAGE_KEY, JSON.stringify(data), false);
-      } catch (e) {
-        console.error("save failed", e);
-      }
-    }, 400);
-    return () => clearTimeout(saveTimer.current);
-  }, [data, loaded]);
-
-  return [data, setData, loaded];
+function loadData(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||structuredClone(DEFAULT_STATE)}catch{return structuredClone(DEFAULT_STATE)}}
+function persist(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data))}
+function setTheme(t){theme=t;document.documentElement.style.setProperty('--bg',t==='dark'?'#0B1220':'#F3F4F8');document.documentElement.style.setProperty('--panel',t==='dark'?'#131B2E':'#FFFFFF');document.documentElement.style.setProperty('--panel-2',t==='dark'?'#0F1729':'#F8F9FC');document.documentElement.style.setProperty('--border',t==='dark'?'#232D42':'#E1E4EC');document.documentElement.style.setProperty('--text',t==='dark'?'#E7ECF3':'#1B2130');document.documentElement.style.setProperty('--text-muted',t==='dark'?'#8B96A8':'#727C8E');document.documentElement.style.setProperty('--input-bg',t==='dark'?'#0F1729':'#FFF');render()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function update(mut){mut(data);persist();render()}
+function nav(){return [
+ ['billing','Billing','▣'],['inventory','Products','▤'],['reports','Sales History','◷'],['customers','Customers','♟'],['settings','Settings','⚙']
+]}
+function appShell(content){
+ const title={billing:['Retail Billing System','Professional POS Billing Software'],inventory:['Products','Manage your inventory and stock levels'],customers:['Customers','Track customers and credit balances'],reports:['Sales History','Review invoices and business performance'],settings:['Settings','Configure your business and tax profile']}[tab];
+ return `<div class="min-h-screen flex">
+ <aside style="background:${theme==='dark'?'#0B1220':'#12172A'};border-right:1px solid var(--sidebar-border)" class="w-[210px] shrink-0 flex flex-col text-[#DCE3EA]">
+  <div class="px-5 py-5 flex items-center gap-2.5"><div class="w-8 h-8 rounded-lg grad-primary flex items-center justify-center">▣</div><span class="font-bold text-lg">${esc(data.settings.businessName||'SwiftPOS')}</span></div>
+  <nav class="flex-1 px-3 py-2 space-y-1">${nav().map(([id,label,icon])=>`<button onclick="tab='${id}';render()" class="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium ${tab===id?'grad-primary text-white':'text-[#8B96A8] hover:bg-white/5'}"><span>${icon}</span>${label}</button>`).join('')}</nav>
+  <div class="p-3"><button onclick="setTheme(theme==='dark'?'light':'dark')" class="w-full px-3.5 py-2.5 rounded-xl text-sm font-medium text-white grad-primary">${theme==='dark'?'☀':'☾'} Toggle Theme</button></div>
+ </aside>
+ <main class="flex-1 min-w-0 flex flex-col">
+  <div style="border-bottom:1px solid var(--border)" class="px-8 py-5 flex items-center justify-between gap-6">
+   <div><h1 class="text-2xl font-bold">${title[0]}</h1><p class="muted text-sm mt-0.5">${title[1]}</p></div>
+   <div class="relative w-72 shrink-0 hidden md:block">🔎 <input value="${esc(query)}" oninput="query=this.value;${tab==='billing'?'renderBilling()':''}" placeholder="Search products..." class="input w-[90%] px-3 py-2.5 rounded-xl text-sm"></div>
+  </div>
+  <div id="content" class="flex-1 overflow-auto">${content}</div>
+ </main></div>`;
 }
 
-const THEME_VARS = {
-  dark: {
-    "--bg": "#0B1220",
-    "--panel": "#131B2E",
-    "--panel-2": "#0F1729",
-    "--border": "#232D42",
-    "--text": "#E7ECF3",
-    "--text-muted": "#8B96A8",
-    "--input-bg": "#0F1729",
-    "--sidebar": "#0B1220",
-    "--sidebar-border": "#1B2436",
-    "--hover": "#1A2338",
-  },
-  light: {
-    "--bg": "#F3F4F8",
-    "--panel": "#FFFFFF",
-    "--panel-2": "#F8F9FC",
-    "--border": "#E1E4EC",
-    "--text": "#1B2130",
-    "--text-muted": "#727C8E",
-    "--input-bg": "#FFFFFF",
-    "--sidebar": "#12172A",
-    "--sidebar-border": "#232D42",
-    "--hover": "#EEF0F6",
-  },
-};
+function render(){document.getElementById('app').innerHTML=appShell({billing:billingView,inventory:inventoryView,customers:customersView,reports:reportsView,settings:settingsView}[tab]());}
 
-const NAV = [
-  { id: "billing", label: "Billing", icon: Store },
-  { id: "inventory", label: "Products", icon: Package },
-  { id: "reports", label: "Sales History", icon: History },
-  { id: "customers", label: "Customers", icon: Users },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
-];
-
-export default function App() {
-  const [data, setData, loaded] = useStorage();
-  const [tab, setTab] = useState("billing");
-  const [theme, setTheme] = useState("dark");
-
-  const vars = THEME_VARS[theme];
-
-  if (!loaded || !data) {
-    return (
-      <div style={{ ...vars, background: "var(--bg)", color: "var(--text)", fontFamily: "'IBM Plex Mono', monospace" }} className="min-h-screen flex items-center justify-center">
-        Loading counter…
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ ...vars, background: "var(--bg)", color: "var(--text)" }} className="min-h-screen w-full flex">
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-        .mono { font-family: 'IBM Plex Mono', monospace; }
-        .disp { font-family: 'Space Grotesk', sans-serif; }
-        * { font-family: 'Space Grotesk', sans-serif; }
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #7C5CFC; outline-offset: 1px; }
-        .grad-primary { background: linear-gradient(90deg, #7C5CFC 0%, #3B9DF5 100%); }
-        .grad-primary:hover { filter: brightness(1.08); }
-        .panel { background: var(--panel); border: 1px solid var(--border); }
-        .input { background: var(--input-bg); border: 1px solid var(--border); color: var(--text); }
-        .input::placeholder { color: var(--text-muted); }
-        .muted { color: var(--text-muted); }
-      `}</style>
-
-      {/* Sidebar */}
-      <aside style={{ background: "var(--sidebar)", borderRight: "1px solid var(--sidebar-border)" }} className="w-[210px] shrink-0 flex flex-col text-[#DCE3EA]">
-        <div className="px-5 py-5 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg grad-primary flex items-center justify-center shrink-0">
-            <Store size={16} className="text-white" />
-          </div>
-          <span className="font-bold text-lg disp">{data.settings.businessName || "SwiftPOS"}</span>
-        </div>
-        <nav className="flex-1 px-3 py-2 space-y-1">
-          {NAV.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                  active ? "grad-primary text-white shadow-lg" : "text-[#8B96A8] hover:bg-white/5"
-                }`}
-              >
-                <Icon size={17} />
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="p-3">
-          <button
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium text-white grad-primary"
-          >
-            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />} Toggle Theme
-          </button>
-        </div>
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 min-w-0 flex flex-col">
-        <Header data={data} tab={tab} />
-        <div className="flex-1 overflow-auto">
-          {tab === "billing" && <Billing data={data} setData={setData} />}
-          {tab === "inventory" && <Inventory data={data} setData={setData} />}
-          {tab === "customers" && <Customers data={data} setData={setData} />}
-          {tab === "reports" && <Reports data={data} />}
-          {tab === "settings" && <SettingsView data={data} setData={setData} />}
-        </div>
-      </main>
-    </div>
-  );
+function billingView(){
+ const q=query.trim().toLowerCase();
+ const products=data.products.filter(p=>!q||p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q)||String(p.barcode).includes(q));
+ const subtotal=cart.reduce((s,i)=>s+i.price*i.qty,0);
+ const gst=cart.reduce((s,i)=>s+i.price*i.qty*(i.taxRate||0)/100,0);
+ const total=Math.max(0,subtotal+gst-(Number(discountAmt)||0));
+ const cur=data.settings.currency;
+ return `<div class="p-6 grid grid-cols-1 xl:grid-cols-[1fr_460px] gap-6 items-start">
+ <div class="panel rounded-2xl p-6"><h2 class="text-lg font-bold mb-4">Barcode Scanner</h2>
+  <div class="flex gap-3 mb-6"><input id="scan" value="${esc(query)}" oninput="query=this.value;renderBilling()" onkeydown="if(event.key==='Enter'&&${products.length?'true':'false'})addToCart(data.products.find(p=>p.id==='${products[0]?.id||''}'))" placeholder="Scan barcode here..." class="input flex-1 px-4 py-3 rounded-xl text-sm"><button class="grad-primary text-white px-4 py-3 rounded-xl text-sm">📷 Camera Scan</button></div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${products.map(p=>`<button onclick="addToCart(data.products.find(x=>x.id==='${p.id}'))" style="background:var(--panel-2);border:1px solid var(--border)" class="text-left rounded-xl p-4 hover:border-[#7C5CFC]"><div class="font-semibold mb-1">${esc(p.name)}</div><div class="font-bold text-lg mb-1">${cur}${money(p.price)}</div><div class="muted text-xs">${esc(p.category)}</div><div class="text-xs mt-0.5 ${p.stock<=p.reorderLevel?'text-amber-400 font-medium':'muted'}">Stock: ${p.stock}</div></button>`).join('')||'<div class="muted text-sm col-span-full py-8 text-center">No products match your search.</div>'}</div>
+ </div>
+ <div class="panel rounded-2xl p-6 flex flex-col"><div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Current Bill</h2><div class="flex gap-2"><span class="muted text-xs">Invoice #${data.settings.invoicePrefix}${data.settings.nextInvoiceNumber}</span><button onclick="showHeld=true;render()">⏸ ${data.heldBills.length?`<sup>${data.heldBills.length}</sup>`:''}</button></div></div>
+ <select onchange="customerId=this.value;renderBilling()" class="input w-full px-3 py-2 rounded-xl text-sm mb-3">${data.customers.map(c=>`<option value="${c.id}" ${c.id===customerId?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+ ${cart.length?`<div class="mb-4"><div class="grid grid-cols-[1fr_auto_auto_auto] gap-3 muted text-xs uppercase pb-2" style="border-bottom:1px solid var(--border)"><span>Product</span><span>Qty</span><span>Price</span><span>Total</span></div><div class="space-y-2 max-h-[320px] overflow-auto">${cart.map(i=>`<div class="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center text-sm py-1"><span class="font-medium truncate">${esc(i.name)}</span><span class="flex items-center gap-1"><button onclick="setQty('${i.productId}',${i.qty-1})" class="w-6 h-6 rounded-full grad-primary text-white">−</button><span class="w-4 text-center mono">${i.qty}</span><button onclick="setQty('${i.productId}',${i.qty+1})" class="w-6 h-6 rounded-full grad-primary text-white">+</button></span><span class="mono">${cur}${money(i.price)}</span><span class="mono font-semibold">${cur}${money(i.price*i.qty)} <button onclick="removeLine('${i.productId}')">✕</button></span></div>`).join('')}</div></div>`:'<div class="muted text-sm text-center py-12">No items yet — click a product to add it.</div>'}
+ <div style="border-top:1px solid var(--border)" class="pt-4 space-y-2 text-sm mono"><div class="flex justify-between"><span class="muted">Subtotal</span><span>${cur}${money(subtotal)}</span></div><div class="flex justify-between"><span class="muted">GST</span><span>${cur}${money(gst)}</span></div><div class="flex justify-between items-center"><span class="muted">Discount</span><input type="number" value="${discountAmt}" oninput="discountAmt=Number(this.value)||0;renderBilling()" class="input w-24 text-right px-2 py-1.5 rounded-lg"></div></div>
+ <div style="border-top:1px solid var(--border)" class="pt-4 mt-3 flex justify-between"><span class="text-lg font-bold">Grand Total</span><span class="text-2xl font-bold">${cur}${money(total)}</span></div>
+ <div class="grid grid-cols-2 gap-2.5 mt-5"><button onclick="saveBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-emerald-600 text-white disabled:opacity-40">💾 Save Bill</button><button onclick="printBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-blue-600 text-white disabled:opacity-40">🖨 Print</button><button onclick="printBill()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-violet-600 text-white disabled:opacity-40">⇩ Export PDF</button><button onclick="resetSale()" ${!cart.length?'disabled':''} class="px-3 py-2.5 rounded-xl bg-red-600 text-white disabled:opacity-40">🗑 Clear</button></div>
+ <button onclick="holdBill()" ${!cart.length?'disabled':''} class="mt-2.5 w-full px-3 py-2.5 rounded-xl disabled:opacity-40" style="background:var(--panel-2);border:1px solid var(--border)">⏸ Hold Bill</button></div>
+ ${showHeld?heldModal():''}${receipt?receiptModal():''}</div>`;
 }
+function renderBilling(){document.getElementById('content').innerHTML=billingView()}
 
-function Header({ data, tab }) {
-  const titles = {
-    billing: ["Retail Billing System", "Professional POS Billing Software"],
-    inventory: ["Products", "Manage your inventory and stock levels"],
-    customers: ["Customers", "Track customers and credit balances"],
-    reports: ["Sales History", "Review invoices and business performance"],
-    settings: ["Settings", "Configure your business and tax profile"],
-  };
-  const [title, subtitle] = titles[tab] || titles.billing;
-  return (
-    <div style={{ borderBottom: "1px solid var(--border)" }} className="px-8 py-5 flex items-center justify-between gap-6">
-      <div>
-        <h1 className="text-2xl font-bold disp">{title}</h1>
-        <p className="muted text-sm mt-0.5">{subtitle}</p>
-      </div>
-      <div className="relative w-72 shrink-0 hidden md:block">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 muted" />
-        <input placeholder="Search products..." className="input w-full pl-9 pr-3 py-2.5 rounded-xl text-sm" />
-      </div>
-    </div>
-  );
+function addToCart(p){if(!p)return;const i=cart.find(x=>x.productId===p.id);if(i)i.qty++;else cart.push({productId:p.id,name:p.name,price:p.price,qty:1,taxRate:p.taxRate});renderBilling()}
+function setQty(id,q){if(q<=0)return removeLine(id);cart=cart.map(i=>i.productId===id?{...i,qty:q}:i);renderBilling()}
+function removeLine(id){cart=cart.filter(i=>i.productId!==id);renderBilling()}
+function resetSale(){cart=[];discountAmt=0;query='';renderBilling()}
+function holdBill(){if(!cart.length)return;update(d=>d.heldBills.push({id:uid(),cart:structuredClone(cart),discountAmt,customerId,savedAt:new Date().toISOString()}));resetSale()}
+function resumeBill(id){const h=data.heldBills.find(x=>x.id===id);if(!h)return;cart=h.cart;discountAmt=h.discountAmt||0;customerId=h.customerId;update(d=>d.heldBills=d.heldBills.filter(x=>x.id!==id));showHeld=false}
+function buildInvoice(){const subtotal=cart.reduce((s,i)=>s+i.price*i.qty,0),gst=cart.reduce((s,i)=>s+i.price*i.qty*(i.taxRate||0)/100,0),total=Math.max(0,subtotal+gst-discountAmt);return{id:uid(),invoiceNo:data.settings.invoicePrefix+data.settings.nextInvoiceNumber,date:new Date().toISOString(),customerId,items:structuredClone(cart),subtotal,discount:Number(discountAmt)||0,taxTotal:gst,total,payments:[{method:payMethod,amount:total}],status:'completed'}}
+function commitInvoice(inv){update(d=>{d.invoices.push(inv);d.products=d.products.map(p=>{const l=cart.find(c=>c.productId===p.id);return l?{...p,stock:Math.max(0,p.stock-l.qty)}:p});d.settings.nextInvoiceNumber++})}
+function saveBill(){if(!cart.length)return;commitInvoice(buildInvoice());resetSale()}
+function printBill(){if(!cart.length)return;const inv=buildInvoice();commitInvoice(inv);receipt=inv;resetSale();render()}
+
+function heldModal(){return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-md p-5"><div class="flex justify-between mb-4"><h3 class="font-bold text-lg">Held Bills</h3><button onclick="showHeld=false;render()">✕</button></div>${data.heldBills.length?data.heldBills.map(h=>`<button onclick="resumeBill('${h.id}')" class="w-full flex justify-between px-3 py-3 rounded-xl mb-2 text-left" style="border:1px solid var(--border)"><span>${h.cart.length} item(s)<small class="block muted">${new Date(h.savedAt).toLocaleTimeString()}</small></span><b>${data.settings.currency}${money(h.cart.reduce((s,i)=>s+i.price*i.qty,0))} ›</b></button>`).join(''):'<div class="muted text-center py-6">No held bills.</div>'}</div></div>`}
+function receiptModal(){const s=data.settings,c=data.customers.find(x=>x.id===receipt.customerId);return `<div class="modal-backdrop"><div><div id="receipt-print" class="receipt mono text-[13px]"><div class="mb-3 text-lg">Order<br>Receipt #${receipt.invoiceNo}</div><div class="text-[#5A6B7A] mb-3">${esc(s.businessName)}<br>${s.gstin?'GSTIN '+esc(s.gstin)+'<br>':''}${new Date(receipt.date).toLocaleString()}${s.address?'<br>'+esc(s.address):''}</div><hr class="my-3">${esc(c?.name||'Walk-in')}<br>${c?.phone?'Phone: '+esc(c.phone):''}<hr class="my-3">${receipt.items.map(i=>`${i.qty} × ${esc(i.name)} ${s.currency}${money(i.price*i.qty*(1+(i.taxRate||0)/100))}`).join('<br>')}<hr class="my-3">Subtotal ${money(receipt.subtotal)}<br>${receipt.discount?'Discount -'+money(receipt.discount)+'<br>':''}GST ${money(receipt.taxTotal)}<br><b>Order Total ${s.currency}${money(receipt.total)}</b><div class="text-center my-5">* * * * * * * * *<br><b>THANK YOU!</b></div></div><div class="flex gap-2 mt-3 no-print"><button onclick="window.print()" class="flex-1 bg-white text-black px-3 py-2 rounded-xl">🖨 Print</button><button onclick="receipt=null;render()" class="flex-1 grad-primary text-white px-3 py-2 rounded-xl">New Sale</button></div></div></div>`}
+
+function inventoryView(){const f=data.products.filter(p=>p.name.toLowerCase().includes(inventoryQuery.toLowerCase())||p.sku.toLowerCase().includes(inventoryQuery.toLowerCase()));return `<div class="p-6"><div class="flex justify-between mb-5"><input value="${esc(inventoryQuery)}" oninput="inventoryQuery=this.value;render()" placeholder="Search products…" class="input w-full max-w-sm px-3 py-2.5 rounded-xl text-sm"><button onclick="editingProduct={id:uid(),name:'',sku:'',barcode:'',category:'',unit:'pcs',costPrice:0,price:0,taxRate:0,stock:0,reorderLevel:5};render()" class="grad-primary text-white px-4 py-2.5 rounded-xl">＋ Add Product</button></div><div class="panel rounded-2xl overflow-auto"><table class="w-full text-sm"><thead class="muted text-xs uppercase"><tr><th class="text-left px-4 py-3">Name</th><th>SKU</th><th>Category</th><th>Cost</th><th>Price</th><th>GST%</th><th>Stock</th><th></th></tr></thead><tbody>${f.map(p=>`<tr style="border-top:1px solid var(--border)"><td class="px-4 py-3 font-medium">${esc(p.name)}</td><td class="mono muted">${esc(p.sku)}</td><td>${esc(p.category)}</td><td class="mono">${money(p.costPrice)}</td><td class="mono">${money(p.price)}</td><td>${p.taxRate}%</td><td class="${p.stock<=p.reorderLevel?'text-amber-400 font-semibold':''}">${p.stock}</td><td><button onclick="editingProduct=structuredClone(data.products.find(x=>x.id==='${p.id}'));render()">Edit</button> <button onclick="deleteProduct('${p.id}')" class="text-red-400">Delete</button></td></tr>`).join('')}</tbody></table></div>${editingProduct?productModal():''}</div>`}
+function deleteProduct(id){if(confirm('Delete this product?'))update(d=>d.products=d.products.filter(p=>p.id!==id))}
+function productModal(){const p=editingProduct, field=(label,key,type='text')=>`<label class="block"><span class="muted text-xs">${label}</span><input type="${type}" value="${esc(p[key])}" oninput="editingProduct.${key}=${type==='number'?'Number(this.value)':'this.value'}" class="in w-full px-3 py-2 rounded-lg"></label>`;return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-md p-6"><div class="flex justify-between mb-4"><h3 class="font-bold">${p.name?'Edit Product':'Add Product'}</h3><button onclick="editingProduct=null;render()">✕</button></div><div class="grid grid-cols-2 gap-3">${field('Name','name')} ${field('SKU','sku')} ${field('Barcode','barcode')} ${field('Category','category')} ${field('Unit','unit')} ${field('Cost Price','costPrice','number')} ${field('Selling Price','price','number')}<label>GST<select onchange="editingProduct.taxRate=Number(this.value)" class="in w-full px-3 py-2 rounded-lg">${data.settings.taxRates.map(r=>`<option ${r===p.taxRate?'selected':''}>${r}</option>`).join('')}</select></label>${field('Stock','stock','number')}${field('Reorder Level','reorderLevel','number')}</div><button onclick="saveProduct()" class="w-full mt-5 grad-primary text-white px-4 py-3 rounded-xl">Save Product</button></div></div>`}
+function saveProduct(){if(!editingProduct.name)return;const p=structuredClone(editingProduct);update(d=>{const i=d.products.findIndex(x=>x.id===p.id);if(i>=0)d.products[i]=p;else d.products.push(p)});editingProduct=null}
+
+function customersView(){return `<div class="p-6"><div class="flex justify-between mb-5"><h2 class="text-lg font-bold">Customers</h2><button onclick="editingCustomer={id:uid(),name:'',phone:'',address:'',creditBalance:0};render()" class="grad-primary text-white px-4 py-2.5 rounded-xl">＋ Add Customer</button></div><div class="panel rounded-2xl overflow-auto"><table class="w-full text-sm"><thead class="muted text-xs uppercase"><tr><th class="text-left px-4 py-3">Name</th><th>Phone</th><th>Address</th><th>Credit Due</th><th>Purchases</th><th></th></tr></thead><tbody>${data.customers.map(c=>`<tr style="border-top:1px solid var(--border)"><td class="px-4 py-3">${esc(c.name)}</td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td>${c.creditBalance?'₹'+money(c.creditBalance):'—'}</td><td>${data.invoices.filter(i=>i.customerId===c.id).length}</td><td><button onclick="editingCustomer=structuredClone(data.customers.find(x=>x.id==='${c.id}'));render()">Edit</button> <button onclick="deleteCustomer('${c.id}')" class="text-red-400">Delete</button></td></tr>`).join('')}</tbody></table></div>${editingCustomer?customerModal():''}</div>`}
+function deleteCustomer(id){if(confirm('Delete this customer?'))update(d=>d.customers=d.customers.filter(c=>c.id!==id))}
+function customerModal(){const c=editingCustomer,field=(label,key,type='text')=>`<label class="block"><span class="muted text-xs">${label}</span><input type="${type}" value="${esc(c[key])}" oninput="editingCustomer.${key}=${type==='number'?'Number(this.value)':'this.value'}" class="in w-full px-3 py-2 rounded-lg"></label>`;return `<div class="modal-backdrop"><div class="panel rounded-2xl w-full max-w-sm p-6"><div class="flex justify-between mb-4"><h3 class="font-bold">${c.name?'Edit Customer':'Add Customer'}</h3><button onclick="editingCustomer=null;render()">✕</button></div><div class="space-y-3">${field('Name','name')}${field('Phone','phone')}${field('Address','address')}${field('Credit Balance Due','creditBalance','number')}</div><button onclick="saveCustomer()" class="w-full mt-5 grad-primary text-white px-4 py-3 rounded-xl">Save Customer</button></div></div>`}
+function saveCustomer(){if(!editingCustomer.name)return;const c=structuredClone(editingCustomer);update(d=>{const i=d.customers.findIndex(x=>x.id===c.id);if(i>=0)d.customers[i]=c;else d.customers.push(c)});editingCustomer=null}
+
+let selectedInvoiceId=null;
+function reportsView(){
+ const today=todayStr(),todayInv=data.invoices.filter(i=>i.date.slice(0,10)===today),
+ sales=data.invoices.reduce((s,i)=>s+i.total,0),todaySales=todayInv.reduce((s,i)=>s+i.total,0),
+ tax=data.invoices.reduce((s,i)=>s+i.taxTotal,0),low=data.products.filter(p=>p.stock<=p.reorderLevel);
+ const map={};data.invoices.forEach(i=>i.items.forEach(x=>map[x.name]=(map[x.name]||0)+x.qty));
+ const top=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5);
+ return `<div class="p-6">
+ <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">${stat("Today's Sales",'₹'+money(todaySales),todayInv.length+' bills')}${stat('Total Sales','₹'+money(sales),data.invoices.length+' bills')}${stat('Tax Collected','₹'+money(tax),'all time')}${stat('Low Stock Items',low.length,'need reorder')}</div>
+ <div class="grid md:grid-cols-2 gap-6">
+  <div class="panel rounded-2xl p-4"><h3 class="font-semibold mb-3">Top Selling Items</h3>${top.map(x=>`<div class="flex justify-between py-1.5" style="border-bottom:1px solid var(--border)"><span>${esc(x[0])}</span><span>${x[1]} sold</span></div>`).join('')||'<span class="muted">No sales yet.</span>'}</div>
+  <div class="panel rounded-2xl p-4"><h3 class="font-semibold mb-3">⚠ Low Stock Alerts</h3>${low.map(p=>`<div class="flex justify-between py-1.5"><span>${esc(p.name)}</span><span class="text-amber-400">${p.stock} left</span></div>`).join('')||'<span class="muted">All stock levels healthy.</span>'}</div>
+ </div>
+ <div class="panel rounded-2xl p-4 mt-6">
+  <div class="flex items-center justify-between gap-3 mb-4"><h3 class="font-semibold">All Invoices — Detailed</h3><div class="flex items-center gap-2"><span class="muted text-xs">${data.invoices.length} invoice(s)</span><button onclick="exportAllSalesPDF()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm">⇩ Export All Sales PDF</button></div></div>
+  ${data.invoices.length===0?'<div class="muted text-center py-8">No invoices yet.</div>':
+  `<div class="space-y-4">${[...data.invoices].reverse().map(invoiceCard).join('')}</div>`}
+ </div></div>`;
 }
-
-/* ---------------- BILLING ---------------- */
-function Billing({ data, setData }) {
-  const [query, setQuery] = useState("");
-  const [cart, setCart] = useState([]);
-  const [customerId, setCustomerId] = useState(data.customers[0]?.id || "");
-  const [discountAmt, setDiscountAmt] = useState(0);
-  const [payMethod, setPayMethod] = useState("Cash");
-  const [showReceipt, setShowReceipt] = useState(null);
-  const [showHeld, setShowHeld] = useState(false);
-  const invoiceNoPreview = `${data.settings.invoicePrefix}${data.settings.nextInvoiceNumber}`;
-
-  const filteredProducts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return data.products;
-    return data.products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.barcode.includes(q));
-  }, [query, data.products]);
-
-  function addToCart(p) {
-    setCart((c) => {
-      const existing = c.find((i) => i.productId === p.id);
-      if (existing) return c.map((i) => (i.productId === p.id ? { ...i, qty: i.qty + 1 } : i));
-      return [...c, { productId: p.id, name: p.name, price: p.price, qty: 1, taxRate: p.taxRate }];
-    });
-  }
-  function setQty(productId, qty) {
-    if (qty <= 0) return removeLine(productId);
-    setCart((c) => c.map((i) => (i.productId === productId ? { ...i, qty } : i)));
-  }
-  function removeLine(productId) {
-    setCart((c) => c.filter((i) => i.productId !== productId));
-  }
-
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const avgTaxRate = data.settings.taxRates.includes(5) ? 5 : data.settings.taxRates[0] || 0;
-  const gstTotal = cart.reduce((s, i) => s + (i.price * i.qty * (i.taxRate || 0)) / 100, 0);
-  const grandTotal = Math.max(0, subtotal + gstTotal - (Number(discountAmt) || 0));
-
-  function resetSale() {
-    setCart([]);
-    setDiscountAmt(0);
-    setQuery("");
-  }
-
-  function holdBill() {
-    if (cart.length === 0) return;
-    setData((d) => ({ ...d, heldBills: [...d.heldBills, { id: uid(), cart, discountAmt, customerId, savedAt: new Date().toISOString() }] }));
-    resetSale();
-  }
-  function resumeBill(h) {
-    setCart(h.cart);
-    setDiscountAmt(h.discountAmt || 0);
-    setCustomerId(h.customerId);
-    setData((d) => ({ ...d, heldBills: d.heldBills.filter((x) => x.id !== h.id) }));
-    setShowHeld(false);
-  }
-
-  function buildInvoice() {
-    return {
-      id: uid(),
-      invoiceNo: invoiceNoPreview,
-      date: new Date().toISOString(),
-      customerId,
-      items: cart,
-      subtotal,
-      discount: Number(discountAmt) || 0,
-      taxTotal: gstTotal,
-      total: grandTotal,
-      payments: [{ method: payMethod, amount: grandTotal }],
-      status: "completed",
-    };
-  }
-
-  function commitInvoice(invoice) {
-    setData((d) => ({
-      ...d,
-      invoices: [...d.invoices, invoice],
-      products: d.products.map((p) => {
-        const line = cart.find((c) => c.productId === p.id);
-        return line ? { ...p, stock: Math.max(0, p.stock - line.qty) } : p;
-      }),
-      settings: { ...d.settings, nextInvoiceNumber: d.settings.nextInvoiceNumber + 1 },
-    }));
-  }
-
-  function saveBill() {
-    if (cart.length === 0) return;
-    const invoice = buildInvoice();
-    commitInvoice(invoice);
-    resetSale();
-  }
-  function printBill() {
-    if (cart.length === 0) return;
-    const invoice = buildInvoice();
-    commitInvoice(invoice);
-    setShowReceipt(invoice);
-    resetSale();
-  }
-  function exportPdf() {
-    printBill();
-  }
-
-  const customer = data.customers.find((c) => c.id === customerId);
-
-  return (
-    <div className="p-6 grid grid-cols-1 xl:grid-cols-[1fr_460px] gap-6 items-start">
-      {/* Left: scanner + product grid */}
-      <div className="panel rounded-2xl p-6">
-        <h2 className="text-lg font-bold disp mb-4">Barcode Scanner</h2>
-        <div className="flex gap-3 mb-6">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && filteredProducts[0]) addToCart(filteredProducts[0]);
-            }}
-            placeholder="Scan barcode here..."
-            className="input flex-1 px-4 py-3 rounded-xl text-sm"
-          />
-          <button className="grad-primary text-white px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2 shrink-0">
-            <Camera size={16} /> Camera Scan
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredProducts.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => addToCart(p)}
-              style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
-              className="text-left rounded-xl p-4 hover:border-[#7C5CFC] transition-colors"
-            >
-              <div className="font-semibold disp mb-1">{p.name}</div>
-              <div className="disp font-bold text-lg mb-1">{data.settings.currency}{money(p.price)}</div>
-              <div className="muted text-xs">{p.category}</div>
-              <div className={`text-xs mt-0.5 ${p.stock <= p.reorderLevel ? "text-amber-400 font-medium" : "muted"}`}>Stock: {p.stock}</div>
-            </button>
-          ))}
-          {filteredProducts.length === 0 && <div className="muted text-sm col-span-full py-8 text-center">No products match your search.</div>}
-        </div>
-      </div>
-
-      {/* Right: current bill */}
-      <div className="panel rounded-2xl p-6 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold disp">Current Bill</h2>
-          <div className="flex items-center gap-2">
-            <span className="muted text-xs">Invoice #{invoiceNoPreview}</span>
-            <button onClick={() => setShowHeld(true)} title="Held bills" className="relative p-1.5 rounded-lg hover:bg-white/5">
-              <PauseCircle size={16} className="muted" />
-              {data.heldBills.length > 0 && <span className="absolute -top-1 -right-1 bg-[#7C5CFC] text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">{data.heldBills.length}</span>}
-            </button>
-          </div>
-        </div>
-
-        <div className="mb-3">
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="input w-full px-3 py-2 rounded-xl text-sm">
-            {data.customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {cart.length === 0 ? (
-          <div className="muted text-sm text-center py-12">No items yet — click a product to add it.</div>
-        ) : (
-          <div className="mb-4">
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 muted text-xs uppercase tracking-wide pb-2 mb-1" style={{ borderBottom: "1px solid var(--border)" }}>
-              <span>Product</span><span>Qty</span><span className="text-right">Price</span><span className="text-right pr-6">Total</span>
-            </div>
-            <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
-              {cart.map((i) => (
-                <div key={i.productId} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center text-sm py-1">
-                  <span className="font-medium truncate">{i.name}</span>
-                  <span className="flex items-center gap-1.5">
-                    <button onClick={() => setQty(i.productId, i.qty - 1)} className="w-6 h-6 rounded-full grad-primary text-white flex items-center justify-center text-xs">
-                      <Minus size={12} />
-                    </button>
-                    <span className="w-4 text-center mono">{i.qty}</span>
-                    <button onClick={() => setQty(i.productId, i.qty + 1)} className="w-6 h-6 rounded-full grad-primary text-white flex items-center justify-center text-xs">
-                      <Plus size={12} />
-                    </button>
-                  </span>
-                  <span className="mono text-right">{data.settings.currency}{money(i.price)}</span>
-                  <span className="flex items-center justify-end gap-2">
-                    <span className="mono font-semibold">{data.settings.currency}{money(i.price * i.qty)}</span>
-                    <button onClick={() => removeLine(i.productId)} className="w-6 h-6 rounded-lg bg-red-500/90 hover:bg-red-500 text-white flex items-center justify-center text-xs">
-                      <X size={12} />
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div style={{ borderTop: "1px solid var(--border)" }} className="pt-4 space-y-2 text-sm mono">
-          <div className="flex justify-between"><span className="muted">Subtotal</span><span>{data.settings.currency}{money(subtotal)}</span></div>
-          <div className="flex justify-between"><span className="muted">GST</span><span>{data.settings.currency}{money(gstTotal)}</span></div>
-          <div className="flex items-center justify-between">
-            <span className="muted">Discount</span>
-            <input
-              value={discountAmt}
-              onChange={(e) => setDiscountAmt(Number(e.target.value) || 0)}
-              className="input w-24 text-right px-2 py-1.5 rounded-lg"
-            />
-          </div>
-        </div>
-
-        <div style={{ borderTop: "1px solid var(--border)" }} className="pt-4 mt-3 flex items-center justify-between">
-          <span className="text-lg font-bold disp">Grand Total</span>
-          <span className="text-2xl font-bold disp">{data.settings.currency}{money(grandTotal)}</span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2.5 mt-5">
-          <button onClick={saveBill} disabled={cart.length === 0} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-40">
-            <Save size={15} /> Save Bill
-          </button>
-          <button onClick={printBill} disabled={cart.length === 0} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-40">
-            <Printer size={15} /> Print
-          </button>
-          <button onClick={exportPdf} disabled={cart.length === 0} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium disabled:opacity-40">
-            <FileDown size={15} /> Export PDF
-          </button>
-          <button onClick={resetSale} disabled={cart.length === 0} className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-medium disabled:opacity-40">
-            <Trash2 size={15} /> Clear
-          </button>
-        </div>
-        <button onClick={holdBill} disabled={cart.length === 0} className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium disabled:opacity-40" style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}>
-          <PauseCircle size={15} /> Hold Bill
-        </button>
-      </div>
-
-      {showHeld && <HeldBillsModal held={data.heldBills} onResume={resumeBill} onClose={() => setShowHeld(false)} currency={data.settings.currency} />}
-      {showReceipt && <ReceiptModal invoice={showReceipt} settings={data.settings} customer={customer} onClose={() => setShowReceipt(null)} />}
-    </div>
-  );
+function invoiceCard(i){
+ const c=data.customers.find(x=>x.id===i.customerId);
+ const cur=data.settings.currency;
+ return `<details class="rounded-xl overflow-hidden" style="border:1px solid var(--border)">
+ <summary class="cursor-pointer p-4 list-none">
+  <div class="grid grid-cols-1 md:grid-cols-6 gap-3 items-center">
+   <div><span class="muted text-xs block">Invoice</span><b class="mono">${esc(i.invoiceNo)}</b></div>
+   <div><span class="muted text-xs block">Date & Time</span>${new Date(i.date).toLocaleString()}</div>
+   <div><span class="muted text-xs block">Customer</span>${esc(c?.name||'Walk-in Customer')}</div>
+   <div><span class="muted text-xs block">Items</span>${i.items.reduce((n,x)=>n+x.qty,0)}</div>
+   <div><span class="muted text-xs block">Payment</span>${esc(i.payments?.map(p=>p.method).join(', ')||'Cash')}</div>
+   <div class="text-right"><span class="muted text-xs block">Grand Total</span><b class="mono text-lg">${cur}${money(i.total)}</b></div>
+  </div>
+ </summary>
+ <div class="p-4" style="border-top:1px solid var(--border);background:var(--panel-2)">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-sm">
+   <div><b>Customer Details</b><div class="muted mt-1">Name: ${esc(c?.name||'Walk-in Customer')}<br>Phone: ${esc(c?.phone||'—')}<br>Address: ${esc(c?.address||'—')}</div></div>
+   <div><b>Invoice Details</b><div class="muted mt-1">Invoice No: ${esc(i.invoiceNo)}<br>Date: ${new Date(i.date).toLocaleDateString()}<br>Time: ${new Date(i.date).toLocaleTimeString()}<br>Status: ${esc(i.status||'completed')}</div></div>
+  </div>
+  <div class="overflow-auto"><table class="w-full text-sm">
+   <thead class="muted text-xs uppercase"><tr style="border-bottom:1px solid var(--border)">
+    <th class="text-left py-2">#</th><th class="text-left py-2">Product</th><th class="text-right py-2">Qty</th><th class="text-right py-2">Unit Price</th><th class="text-right py-2">GST %</th><th class="text-right py-2">GST</th><th class="text-right py-2">Line Total</th>
+   </tr></thead>
+   <tbody>${i.items.map((x,n)=>{const base=x.price*x.qty,g=base*(x.taxRate||0)/100;return `<tr style="border-bottom:1px solid var(--border)"><td class="py-2">${n+1}</td><td class="py-2">${esc(x.name)}</td><td class="py-2 text-right">${x.qty}</td><td class="py-2 text-right mono">${cur}${money(x.price)}</td><td class="py-2 text-right">${x.taxRate||0}%</td><td class="py-2 text-right mono">${cur}${money(g)}</td><td class="py-2 text-right mono font-medium">${cur}${money(base+g)}</td></tr>`}).join('')}</tbody>
+  </table></div>
+  <div class="flex justify-end mt-4"><div class="w-full md:w-80 space-y-1 text-sm">
+   <div class="flex justify-between"><span class="muted">Subtotal</span><span class="mono">${cur}${money(i.subtotal)}</span></div>
+   <div class="flex justify-between"><span class="muted">GST</span><span class="mono">${cur}${money(i.taxTotal)}</span></div>
+   <div class="flex justify-between"><span class="muted">Discount</span><span class="mono">-${cur}${money(i.discount||0)}</span></div>
+   <div class="flex justify-between text-base font-bold pt-2" style="border-top:1px solid var(--border)"><span>Grand Total</span><span class="mono">${cur}${money(i.total)}</span></div>
+   ${(i.payments||[]).map(p=>`<div class="flex justify-between"><span class="muted">Paid (${esc(p.method)})</span><span class="mono">${cur}${money(p.amount)}</span></div>`).join('')}
+  </div></div>
+  <div class="flex justify-end mt-4"><button onclick="printInvoiceById('${i.id}')" class="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm">🖨 Print Invoice</button></div>
+ </div></details>`;
 }
+function exportAllSalesPDF(){
+ const {jsPDF}=window.jspdf||{};
+ if(!jsPDF){alert('PDF library could not be loaded. Please check your internet connection.');return}
+ if(!data.invoices.length){alert('There are no sales/invoices to export.');return}
+ const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+ const s=data.settings, cur=s.currency||'₹';
+ const totalSales=data.invoices.reduce((a,i)=>a+Number(i.total||0),0);
+ const totalTax=data.invoices.reduce((a,i)=>a+Number(i.taxTotal||0),0);
+ const totalDiscount=data.invoices.reduce((a,i)=>a+Number(i.discount||0),0);
+ const totalItems=data.invoices.reduce((a,i)=>a+i.items.reduce((n,x)=>n+Number(x.qty||0),0),0);
 
-function HeldBillsModal({ held, onResume, onClose, currency }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="panel rounded-2xl w-full max-w-md max-h-[80vh] overflow-auto p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold disp text-lg">Held Bills</h3>
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-        {held.length === 0 && <div className="muted text-sm py-6 text-center">No held bills.</div>}
-        {held.map((h) => {
-          const total = h.cart.reduce((s, i) => s + i.price * i.qty, 0);
-          return (
-            <button key={h.id} onClick={() => onResume(h)} style={{ border: "1px solid var(--border)" }} className="w-full flex items-center justify-between px-3 py-3 rounded-xl mb-2 hover:bg-white/5 text-left">
-              <div>
-                <div className="text-sm font-medium">{h.cart.length} item(s)</div>
-                <div className="muted text-xs">{new Date(h.savedAt).toLocaleTimeString()}</div>
-              </div>
-              <div className="flex items-center gap-2 mono font-semibold">{currency}{money(total)} <ChevronRight size={14} /></div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+ doc.setFontSize(18);doc.text(s.businessName||'SwiftPOS',14,15);
+ doc.setFontSize(11);doc.text('All Sales Report',14,22);
+ doc.setFontSize(8);doc.text(`Generated: ${new Date().toLocaleString()}`,14,28);
+ if(s.address)doc.text(String(s.address),14,33);
+ if(s.gstin)doc.text('GSTIN: '+String(s.gstin),14,38);
+
+ doc.setFontSize(9);
+ doc.text(`Invoices: ${data.invoices.length}`,190,15);
+ doc.text(`Items Sold: ${totalItems}`,190,21);
+ doc.text(`Subtotal: ${cur}${money(data.invoices.reduce((a,i)=>a+Number(i.subtotal||0),0))}`,190,27);
+ doc.text(`Discount: ${cur}${money(totalDiscount)}`,190,33);
+ doc.text(`GST: ${cur}${money(totalTax)}`,190,39);
+ doc.text(`Grand Total: ${cur}${money(totalSales)}`,245,39);
+
+ const rows=[];
+ [...data.invoices].reverse().forEach((inv)=>{
+   const customer=data.customers.find(c=>c.id===inv.customerId);
+   inv.items.forEach((item,index)=>{
+     const base=Number(item.price||0)*Number(item.qty||0);
+     const gst=base*(Number(item.taxRate||0)/100);
+     rows.push([
+       index===0?inv.invoiceNo:'',
+       index===0?new Date(inv.date).toLocaleString():'',
+       index===0?(customer?.name||'Walk-in Customer'):'',
+       item.name,
+       item.qty,
+       `${cur}${money(item.price)}`,
+       `${item.taxRate||0}%`,
+       `${cur}${money(gst)}`,
+       `${cur}${money(base+gst)}`,
+       index===0?`${cur}${money(inv.total)}`:''
+     ]);
+   });
+ });
+
+ doc.autoTable({
+   startY:45,
+   head:[['Invoice #','Date / Time','Customer','Product','Qty','Unit Price','GST','GST Amt','Line Total','Invoice Total']],
+   body:rows,
+   theme:'grid',
+   styles:{fontSize:7,cellPadding:2},
+   headStyles:{fontSize:7,fontStyle:'bold'},
+   columnStyles:{0:{cellWidth:25},1:{cellWidth:29},2:{cellWidth:32},3:{cellWidth:42},4:{cellWidth:12,halign:'right'},5:{cellWidth:22,halign:'right'},6:{cellWidth:12,halign:'right'},7:{cellWidth:22,halign:'right'},8:{cellWidth:24,halign:'right'},9:{cellWidth:25,halign:'right'}},
+   didDrawPage:(d)=>{
+     doc.setFontSize(7);
+     doc.text(`Page ${doc.internal.getNumberOfPages()}`,275,202,{align:'right'});
+   }
+ });
+ const finalY=doc.lastAutoTable?.finalY||45;
+ doc.setFontSize(10);
+ doc.text(`Total Sales: ${cur}${money(totalSales)}`,14,Math.min(finalY+10,190));
+ doc.save(`SwiftPOS_All_Sales_${todayStr()}.pdf`);
 }
-
-function ReceiptModal({ invoice, settings, customer, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#F0F4F5] p-3 rounded-2xl">
-        <div className="bg-white w-[320px] p-6 mono text-[13px] text-[#2A2E33] leading-tight">
-          <div className="mb-3">
-            <div className="text-lg font-semibold disp">Order</div>
-            <div className="text-lg disp">Receipt #{invoice.invoiceNo}</div>
-          </div>
-          <div className="text-[#5A6B7A] mb-3">
-            <div>{settings.businessName}</div>
-            {settings.gstin && <div>GSTIN {settings.gstin}</div>}
-            <div>{new Date(invoice.date).toLocaleDateString()} {new Date(invoice.date).toLocaleTimeString()}</div>
-            {settings.address && <div>{settings.address}</div>}
-          </div>
-          <div className="border-t border-dashed border-[#C9CFD3] my-3" />
-          <div className="text-[#5A6B7A] mb-3 space-y-0.5">
-            <div className="flex"><span className="w-24">Client</span><span>: {customer?.name || "Walk-in"}</span></div>
-            <div className="flex"><span className="w-24">Invoice No</span><span>: {invoice.invoiceNo}</span></div>
-            {customer?.phone && <div className="flex"><span className="w-24">Phone</span><span>: {customer.phone}</span></div>}
-          </div>
-          <div className="border-t border-dashed border-[#C9CFD3] my-3" />
-          <div className="flex text-[#5A6B7A] text-[11px] uppercase tracking-wide mb-1">
-            <span className="w-10">Qty</span><span className="flex-1">Description</span><span className="w-16 text-right">Cost</span>
-          </div>
-          <div className="border-t border-dashed border-[#C9CFD3] mb-1.5" />
-          {invoice.items.map((i) => {
-            const lineBase = i.price * i.qty;
-            const gstAmt = (lineBase * (i.taxRate || 0)) / 100;
-            return (
-              <div key={i.productId} className="flex py-0.5">
-                <span className="w-10">{i.qty}</span>
-                <span className="flex-1 pr-2 truncate">{i.name}</span>
-                <span className="w-16 text-right">{settings.currency}{money(lineBase + gstAmt)}</span>
-              </div>
-            );
-          })}
-          <div className="border-t border-dashed border-[#C9CFD3] my-3" />
-          <div className="space-y-0.5">
-            <div className="flex justify-end gap-6"><span className="text-[#5A6B7A]">Sub Total</span><span className="w-16 text-right">{money(invoice.subtotal)}</span></div>
-            {invoice.discount > 0 && <div className="flex justify-end gap-6"><span className="text-[#5A6B7A]">Discount</span><span className="w-16 text-right">-{money(invoice.discount)}</span></div>}
-            <div className="flex justify-end gap-6"><span className="text-[#5A6B7A]">GST</span><span className="w-16 text-right">{money(invoice.taxTotal)}</span></div>
-            <div className="flex justify-end gap-6 font-semibold text-[15px] pt-1"><span>Order Total</span><span className="w-16 text-right">{settings.currency}{money(invoice.total)}</span></div>
-          </div>
-          <div className="text-[#5A6B7A] mt-2 space-y-0.5">
-            {invoice.payments.map((p, idx) => (
-              <div key={idx} className="flex justify-end gap-6"><span>{p.method}</span><span className="w-16 text-right">{settings.currency}{money(p.amount)}</span></div>
-            ))}
-          </div>
-          <div className="text-center text-[#C9CFD3] tracking-widest my-4 text-[11px]">* * * * * * * * * * * * * * * * * * *</div>
-          <div className="text-center font-semibold tracking-wide mb-4 disp">THANK YOU!</div>
-          <div className="text-center text-[#5A6B7A] leading-relaxed mb-4">JOIN OUR E-MAIL<br />LIST FOR SPECIAL<br />OFFERS AND DISCOUNTS</div>
-          <div className="text-[#5A6B7A] space-y-3 mb-1">
-            <div className="border-b border-[#C9CFD3] pb-1">E-MAIL</div>
-            <div className="border-b border-[#C9CFD3] pb-1">GUEST NAME</div>
-          </div>
-        </div>
-        <div className="flex gap-2 mt-3">
-          <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-[#D9D2C3] bg-white text-sm hover:bg-[#F0EEE6]">
-            <Printer size={15} /> Print
-          </button>
-          <button onClick={onClose} className="flex-1 px-3 py-2.5 rounded-xl grad-primary text-white text-sm font-medium">New Sale</button>
-        </div>
-      </div>
-    </div>
-  );
+function printInvoiceById(id){
+ const inv=data.invoices.find(i=>i.id===id);if(!inv)return;
+ receipt=inv;render();
+ setTimeout(()=>window.print(),150);
 }
+function stat(label,value,sub){return `<div class="panel rounded-2xl p-4"><div class="muted text-xs uppercase">${label}</div><div class="text-2xl font-bold mono mt-1">${value}</div><div class="muted text-xs mt-0.5">${sub}</div></div>`}
 
-/* ---------------- INVENTORY ---------------- */
-function Inventory({ data, setData }) {
-  const [query, setQuery] = useState("");
-  const [editing, setEditing] = useState(null);
-  const filtered = data.products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()) || p.sku.toLowerCase().includes(query.toLowerCase()));
+function settingsView(){const s=data.settings;return `<div class="p-6 max-w-lg"><div class="panel rounded-2xl p-5 space-y-4"><label>Business Name<input value="${esc(s.businessName)}" oninput="data.settings.businessName=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Address<input value="${esc(s.address)}" oninput="data.settings.address=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>GSTIN / Tax ID<input value="${esc(s.gstin)}" oninput="data.settings.gstin=this.value" class="in w-full px-3 py-2 rounded-lg"></label><div class="grid grid-cols-2 gap-3"><label>Invoice Prefix<input value="${esc(s.invoicePrefix)}" oninput="data.settings.invoicePrefix=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Next Invoice #<input type="number" value="${s.nextInvoiceNumber}" oninput="data.settings.nextInvoiceNumber=Number(this.value)" class="in w-full px-3 py-2 rounded-lg"></label></div><label>Currency Symbol<input value="${esc(s.currency)}" oninput="data.settings.currency=this.value" class="in w-full px-3 py-2 rounded-lg"></label><label>Tax Rate Slabs<input value="${s.taxRates.join(',')}" oninput="data.settings.taxRates=this.value.split(',').map(x=>Number(x.trim())).filter(x=>!isNaN(x))" class="in w-full px-3 py-2 rounded-lg"></label></div><button onclick="persist();render()" class="mt-5 grad-primary text-white px-5 py-3 rounded-xl font-semibold">Save Settings</button></div>`}
 
-  function save(product) {
-    setData((d) => {
-      const exists = d.products.some((p) => p.id === product.id);
-      return { ...d, products: exists ? d.products.map((p) => (p.id === product.id ? product : p)) : [...d.products, product] };
-    });
-    setEditing(null);
-  }
-  function remove(id) {
-    setData((d) => ({ ...d, products: d.products.filter((p) => p.id !== id) }));
-  }
-
-  return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-5">
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products…" className="input w-full max-w-sm px-3 py-2.5 rounded-xl text-sm" />
-        <button onClick={() => setEditing({ id: uid(), name: "", sku: "", barcode: "", category: "", unit: "pcs", costPrice: 0, price: 0, taxRate: 0, stock: 0, reorderLevel: 5 })} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl grad-primary text-white text-sm font-medium">
-          <Plus size={16} /> Add Product
-        </button>
-      </div>
-      <div className="panel rounded-2xl overflow-auto">
-        <table className="w-full text-sm">
-          <thead style={{ borderBottom: "1px solid var(--border)" }} className="muted text-xs uppercase tracking-wide">
-            <tr>
-              <th className="text-left px-4 py-3">Name</th><th className="text-left px-2 py-3">SKU</th><th className="text-left px-2 py-3">Category</th>
-              <th className="text-right px-2 py-3">Cost</th><th className="text-right px-2 py-3">Price</th><th className="text-right px-2 py-3">GST%</th><th className="text-right px-2 py-3">Stock</th><th className="w-24"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((p) => (
-              <tr key={p.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td className="px-4 py-3 font-medium">{p.name}</td>
-                <td className="px-2 py-3 mono muted">{p.sku}</td>
-                <td className="px-2 py-3">{p.category}</td>
-                <td className="px-2 py-3 text-right mono">{money(p.costPrice)}</td>
-                <td className="px-2 py-3 text-right mono">{money(p.price)}</td>
-                <td className="px-2 py-3 text-right mono">{p.taxRate}%</td>
-                <td className="px-2 py-3 text-right mono">
-                  <span className={p.stock <= p.reorderLevel ? "text-amber-400 font-semibold flex items-center justify-end gap-1" : ""}>
-                    {p.stock <= p.reorderLevel && <AlertTriangle size={12} />} {p.stock}
-                  </span>
-                </td>
-                <td className="px-2 py-3 text-right">
-                  <button onClick={() => setEditing(p)} className="text-[#7C9CFC] text-xs font-medium mr-2 hover:underline">Edit</button>
-                  <button onClick={() => remove(p.id)} className="text-red-400 text-xs font-medium hover:underline">Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {editing && <ProductModal product={editing} onSave={save} onClose={() => setEditing(null)} taxRates={data.settings.taxRates} />}
-    </div>
-  );
-}
-
-function ProductModal({ product, onSave, onClose, taxRates }) {
-  const [p, setP] = useState(product);
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="panel rounded-2xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold disp text-lg">{product.name ? "Edit Product" : "Add Product"}</h3>
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <Field label="Name" full><input value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} className="in" /></Field>
-          <Field label="SKU"><input value={p.sku} onChange={(e) => setP({ ...p, sku: e.target.value })} className="in" /></Field>
-          <Field label="Barcode"><input value={p.barcode} onChange={(e) => setP({ ...p, barcode: e.target.value })} className="in" /></Field>
-          <Field label="Category"><input value={p.category} onChange={(e) => setP({ ...p, category: e.target.value })} className="in" /></Field>
-          <Field label="Unit"><input value={p.unit} onChange={(e) => setP({ ...p, unit: e.target.value })} className="in" /></Field>
-          <Field label="Cost Price"><input type="number" value={p.costPrice} onChange={(e) => setP({ ...p, costPrice: Number(e.target.value) })} className="in" /></Field>
-          <Field label="Selling Price"><input type="number" value={p.price} onChange={(e) => setP({ ...p, price: Number(e.target.value) })} className="in" /></Field>
-          <Field label="GST Rate %">
-            <select value={p.taxRate} onChange={(e) => setP({ ...p, taxRate: Number(e.target.value) })} className="in">
-              {taxRates.map((r) => <option key={r} value={r}>{r}%</option>)}
-            </select>
-          </Field>
-          <Field label="Stock"><input type="number" value={p.stock} onChange={(e) => setP({ ...p, stock: Number(e.target.value) })} className="in" /></Field>
-          <Field label="Reorder Level"><input type="number" value={p.reorderLevel} onChange={(e) => setP({ ...p, reorderLevel: Number(e.target.value) })} className="in" /></Field>
-        </div>
-        <style>{`.in { width: 100%; padding: 0.55rem 0.75rem; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: 0.65rem; margin-top: 0.25rem; }`}</style>
-        <button onClick={() => onSave(p)} disabled={!p.name} className="w-full mt-5 px-4 py-3 rounded-xl grad-primary text-white text-sm font-semibold disabled:opacity-40">Save Product</button>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children, full }) {
-  return (
-    <label className={`block ${full ? "col-span-2" : ""}`}>
-      <span className="muted text-xs uppercase tracking-wide">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-/* ---------------- CUSTOMERS ---------------- */
-function Customers({ data, setData }) {
-  const [editing, setEditing] = useState(null);
-  function save(c) {
-    setData((d) => {
-      const exists = d.customers.some((x) => x.id === c.id);
-      return { ...d, customers: exists ? d.customers.map((x) => (x.id === c.id ? c : x)) : [...d.customers, c] };
-    });
-    setEditing(null);
-  }
-  function remove(id) {
-    setData((d) => ({ ...d, customers: d.customers.filter((c) => c.id !== id) }));
-  }
-  return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-bold disp">Customers</h2>
-        <button onClick={() => setEditing({ id: uid(), name: "", phone: "", address: "", creditBalance: 0 })} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl grad-primary text-white text-sm font-medium">
-          <Plus size={16} /> Add Customer
-        </button>
-      </div>
-      <div className="panel rounded-2xl overflow-auto">
-        <table className="w-full text-sm">
-          <thead style={{ borderBottom: "1px solid var(--border)" }} className="muted text-xs uppercase tracking-wide">
-            <tr><th className="text-left px-4 py-3">Name</th><th className="text-left px-2 py-3">Phone</th><th className="text-left px-2 py-3">Address</th><th className="text-right px-2 py-3">Credit Due</th><th className="text-right px-2 py-3">Purchases</th><th className="w-20"></th></tr>
-          </thead>
-          <tbody>
-            {data.customers.map((c) => {
-              const purchaseCount = data.invoices.filter((i) => i.customerId === c.id).length;
-              return (
-                <tr key={c.id} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-2 py-3 mono">{c.phone}</td>
-                  <td className="px-2 py-3">{c.address}</td>
-                  <td className="px-2 py-3 text-right mono">{c.creditBalance > 0 ? <span className="text-amber-400 font-semibold">₹{money(c.creditBalance)}</span> : "—"}</td>
-                  <td className="px-2 py-3 text-right mono">{purchaseCount}</td>
-                  <td className="px-2 py-3 text-right">
-                    <button onClick={() => setEditing(c)} className="text-[#7C9CFC] text-xs font-medium mr-2 hover:underline">Edit</button>
-                    <button onClick={() => remove(c.id)} className="text-red-400 text-xs font-medium hover:underline">Delete</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {editing && <CustomerModal customer={editing} onSave={save} onClose={() => setEditing(null)} />}
-    </div>
-  );
-}
-
-function CustomerModal({ customer, onSave, onClose }) {
-  const [c, setC] = useState(customer);
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="panel rounded-2xl w-full max-w-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold disp text-lg">{customer.name ? "Edit Customer" : "Add Customer"}</h3>
-          <button onClick={onClose}><X size={18} /></button>
-        </div>
-        <div className="space-y-3 text-sm">
-          <Field label="Name"><input value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} className="in" /></Field>
-          <Field label="Phone"><input value={c.phone} onChange={(e) => setC({ ...c, phone: e.target.value })} className="in" /></Field>
-          <Field label="Address"><input value={c.address} onChange={(e) => setC({ ...c, address: e.target.value })} className="in" /></Field>
-          <Field label="Credit Balance Due"><input type="number" value={c.creditBalance} onChange={(e) => setC({ ...c, creditBalance: Number(e.target.value) })} className="in" /></Field>
-        </div>
-        <style>{`.in { width: 100%; padding: 0.55rem 0.75rem; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: 0.65rem; margin-top: 0.25rem; }`}</style>
-        <button onClick={() => onSave(c)} disabled={!c.name} className="w-full mt-5 px-4 py-3 rounded-xl grad-primary text-white text-sm font-semibold disabled:opacity-40">Save Customer</button>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- REPORTS ---------------- */
-function Reports({ data }) {
-  const today = todayStr();
-  const todayInvoices = data.invoices.filter((i) => i.date.slice(0, 10) === today);
-  const totalSalesToday = todayInvoices.reduce((s, i) => s + i.total, 0);
-  const totalSalesAll = data.invoices.reduce((s, i) => s + i.total, 0);
-  const totalTax = data.invoices.reduce((s, i) => s + i.taxTotal, 0);
-  const itemSales = {};
-  data.invoices.forEach((inv) => inv.items.forEach((it) => { itemSales[it.name] = (itemSales[it.name] || 0) + it.qty; }));
-  const topItems = Object.entries(itemSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const lowStock = data.products.filter((p) => p.stock <= p.reorderLevel);
-
-  return (
-    <div className="p-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Today's Sales" value={`₹${money(totalSalesToday)}`} sub={`${todayInvoices.length} bills`} />
-        <StatCard label="Total Sales" value={`₹${money(totalSalesAll)}`} sub={`${data.invoices.length} bills`} />
-        <StatCard label="Tax Collected" value={`₹${money(totalTax)}`} sub="all time" />
-        <StatCard label="Low Stock Items" value={lowStock.length} sub="need reorder" warn={lowStock.length > 0} />
-      </div>
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="panel rounded-2xl p-4">
-          <h3 className="font-semibold mb-3 text-sm disp">Top Selling Items</h3>
-          {topItems.length === 0 && <div className="muted text-sm">No sales yet.</div>}
-          {topItems.map(([name, qty]) => (
-            <div key={name} style={{ borderBottom: "1px solid var(--border)" }} className="flex justify-between text-sm py-1.5 last:border-0">
-              <span>{name}</span><span className="mono font-medium">{qty} sold</span>
-            </div>
-          ))}
-        </div>
-        <div className="panel rounded-2xl p-4">
-          <h3 className="font-semibold mb-3 text-sm flex items-center gap-1.5 disp"><AlertTriangle size={14} className="text-amber-400" /> Low Stock Alerts</h3>
-          {lowStock.length === 0 && <div className="muted text-sm">All stock levels healthy.</div>}
-          {lowStock.map((p) => (
-            <div key={p.id} style={{ borderBottom: "1px solid var(--border)" }} className="flex justify-between text-sm py-1.5 last:border-0">
-              <span>{p.name}</span><span className="mono font-medium text-amber-400">{p.stock} left</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="panel rounded-2xl p-4 mt-6">
-        <h3 className="font-semibold mb-3 text-sm disp">Recent Invoices</h3>
-        <table className="w-full text-sm">
-          <thead className="muted text-xs uppercase"><tr><th className="text-left py-1">Invoice</th><th className="text-left py-1">Date</th><th className="text-right py-1">Total</th></tr></thead>
-          <tbody>
-            {[...data.invoices].reverse().slice(0, 10).map((i) => (
-              <tr key={i.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td className="py-1.5 mono">{i.invoiceNo}</td>
-                <td className="py-1.5 muted">{new Date(i.date).toLocaleString()}</td>
-                <td className="py-1.5 text-right mono font-medium">₹{money(i.total)}</td>
-              </tr>
-            ))}
-            {data.invoices.length === 0 && <tr><td colSpan={3} className="text-center py-4 muted">No invoices yet.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, sub, warn }) {
-  return (
-    <div className="panel rounded-2xl p-4">
-      <div className="muted text-xs uppercase tracking-wide">{label}</div>
-      <div className={`text-2xl font-bold mono mt-1 ${warn ? "text-amber-400" : ""}`}>{value}</div>
-      <div className="muted text-xs mt-0.5">{sub}</div>
-    </div>
-  );
-}
-
-/* ---------------- SETTINGS ---------------- */
-function SettingsView({ data, setData }) {
-  const [s, setS] = useState(data.settings);
-  function save() { setData((d) => ({ ...d, settings: s })); }
-  return (
-    <div className="p-6 max-w-lg">
-      <div className="panel rounded-2xl p-5 space-y-4 text-sm">
-        <Field label="Business Name"><input value={s.businessName} onChange={(e) => setS({ ...s, businessName: e.target.value })} className="in" /></Field>
-        <Field label="Address"><input value={s.address} onChange={(e) => setS({ ...s, address: e.target.value })} className="in" /></Field>
-        <Field label="GSTIN / Tax ID"><input value={s.gstin} onChange={(e) => setS({ ...s, gstin: e.target.value })} className="in" /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Invoice Prefix"><input value={s.invoicePrefix} onChange={(e) => setS({ ...s, invoicePrefix: e.target.value })} className="in" /></Field>
-          <Field label="Next Invoice #"><input type="number" value={s.nextInvoiceNumber} onChange={(e) => setS({ ...s, nextInvoiceNumber: Number(e.target.value) })} className="in" /></Field>
-        </div>
-        <Field label="Currency Symbol"><input value={s.currency} onChange={(e) => setS({ ...s, currency: e.target.value })} className="in" /></Field>
-        <Field label="Tax Rate Slabs (comma-separated %)">
-          <input value={s.taxRates.join(",")} onChange={(e) => setS({ ...s, taxRates: e.target.value.split(",").map((x) => Number(x.trim())).filter((x) => !isNaN(x)) })} className="in" />
-        </Field>
-      </div>
-      <style>{`.in { width: 100%; padding: 0.55rem 0.75rem; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: 0.65rem; margin-top: 0.25rem; }`}</style>
-      <button onClick={save} className="mt-5 px-5 py-3 rounded-xl grad-primary text-white text-sm font-semibold">Save Settings</button>
-    </div>
-  );
-}
+render();
+</script>
+</body>
+</html>
