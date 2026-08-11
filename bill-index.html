@@ -179,43 +179,73 @@ function invoiceCard(i){
  </div></details>`;
 }
 function exportAllSalesPDF(){
- const J=window.jspdf;
- if(!J||!J.jsPDF){alert('PDF library is not available. Connect to the internet and try again.');return}
- if(!data.invoices.length){alert('There are no sales to export.');return}
+ const {jsPDF}=window.jspdf||{};
+ if(!jsPDF){alert('PDF library could not be loaded. Please check your internet connection.');return}
+ if(!data.invoices.length){alert('There are no sales/invoices to export.');return}
+ const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+ const s=data.settings;
+ 
+ // FIX: Map '₹' to 'Rs.' specifically for PDF generation to avoid standard font rendering corruption
+ const cur = (s.currency === '₹') ? 'Rs. ' : (s.currency || '');
+ 
+ const totalSales=data.invoices.reduce((a,i)=>a+Number(i.total||0),0);
+ const totalTax=data.invoices.reduce((a,i)=>a+Number(i.taxTotal||0),0);
+ const totalDiscount=data.invoices.reduce((a,i)=>a+Number(i.discount||0),0);
+ const totalItems=data.invoices.reduce((a,i)=>a+i.items.reduce((n,x)=>n+Number(x.qty||0),0),0);
 
- const doc=new J.jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
- const invoices=[...data.invoices].reverse();
- const cur='Rs. ';
- const pageW=297,pageH=210,left=10,right=10;
- const cols=[
-   {title:'Invoice',x:10,w:25},
-   {title:'Date / Time',x:35,w:29},
-   {title:'Customer',x:64,w:32},
-   {title:'Product',x:96,w:43},
-   {title:'Qty',x:139,w:12},
-   {title:'Unit Price',x:151,w:24},
-   {title:'GST %',x:175,w:13},
-   {title:'GST Amt',x:188,w:24},
-   {title:'Line Total',x:212,w:27},
-   {title:'Invoice Total',x:239,w:38}
- ];
- const totalSubtotal=invoices.reduce((a,i)=>a+Number(i.subtotal||0),0);
- const totalDiscount=invoices.reduce((a,i)=>a+Number(i.discount||0),0);
- const totalTax=invoices.reduce((a,i)=>a+Number(i.taxTotal||0),0);
- const totalSales=invoices.reduce((a,i)=>a+Number(i.total||0),0);
- const totalItems=invoices.reduce((a,i)=>a+i.items.reduce((n,x)=>n+Number(x.qty||0),0),0);
+ doc.setFontSize(18);doc.text(s.businessName||'SwiftPOS',14,15);
+ doc.setFontSize(11);doc.text('All Sales Report',14,22);
+ doc.setFontSize(8);doc.text(`Generated: ${new Date().toLocaleString()}`,14,28);
+ if(s.address)doc.text(String(s.address),14,33);
+ if(s.gstin)doc.text('GSTIN: '+String(s.gstin),14,38);
 
- function clean(v){return String(v??'').replace(/[^\x20-\x7E]/g,'');}
- function wrap(text,max){
-   const words=clean(text).split(/\s+/), out=[]; let line='';
-   words.forEach(w=>{
-     if(!line) line=w;
-     else if(doc.getTextWidth(line+' '+w)<=max) line+=' '+w;
-     else {out.push(line);line=w;}
+ doc.setFontSize(9);
+ doc.text(`Invoices: ${data.invoices.length}`,190,15);
+ doc.text(`Items Sold: ${totalItems}`,190,21);
+ doc.text(`Subtotal: ${cur}${money(data.invoices.reduce((a,i)=>a+Number(i.subtotal||0),0))}`,190,27);
+ doc.text(`Discount: ${cur}${money(totalDiscount)}`,190,33);
+ doc.text(`GST: ${cur}${money(totalTax)}`,190,39);
+ doc.text(`Grand Total: ${cur}${money(totalSales)}`,245,39);
+
+ const rows=[];
+ [...data.invoices].reverse().forEach((inv)=>{
+   const customer=data.customers.find(c=>c.id===inv.customerId);
+   inv.items.forEach((item,index)=>{
+     const base=Number(item.price||0)*Number(item.qty||0);
+     const gst=base*(Number(item.taxRate||0)/100);
+     rows.push([
+       index===0?inv.invoiceNo:'',
+       index===0?new Date(inv.date).toLocaleString():'',
+       index===0?(customer?.name||'Walk-in Customer'):'',
+       item.name,
+       item.qty,
+       `${cur}${money(item.price)}`,
+       `${item.taxRate||0}%`,
+       `${cur}${money(gst)}`,
+       `${cur}${money(base+gst)}`,
+       index===0?`${cur}${money(inv.total)}`:''
+     ]);
    });
-   if(line)out.push(line);
-   return out.length?out:[''];
- }
+ });
+
+ doc.autoTable({
+   startY:45,
+   head:[['Invoice #','Date / Time','Customer','Product','Qty','Unit Price','GST','GST Amt','Line Total','Invoice Total']],
+   body:rows,
+   theme:'grid',
+   styles:{fontSize:7,cellPadding:2},
+   headStyles:{fontSize:7,fontStyle:'bold'},
+   columnStyles:{0:{cellWidth:25},1:{cellWidth:29},2:{cellWidth:32},3:{cellWidth:42},4:{cellWidth:12,halign:'right'},5:{cellWidth:22,halign:'right'},6:{cellWidth:12,halign:'right'},7:{cellWidth:22,halign:'right'},8:{cellWidth:24,halign:'right'},9:{cellWidth:25,halign:'right'}},
+   didDrawPage:(d)=>{
+     doc.setFontSize(7);
+     doc.text(`Page ${doc.internal.getNumberOfPages()}`,275,202,{align:'right'});
+   }
+ });
+ const finalY=doc.lastAutoTable?.finalY||45;
+ doc.setFontSize(10);
+ doc.text(`Total Sales: ${cur}${money(totalSales)}`,14,Math.min(finalY+10,190));
+ doc.save(`SwiftPOS_All_Sales_${todayStr()}.pdf`);
+}
  function header(){
    doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(25,25,25);
    doc.text(clean(data.settings.businessName||'SwiftPOS'),10,13);
